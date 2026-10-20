@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import __version__, config, db
+from . import __version__, config, db, i18n
 from .services import assets, backup, budget, categories, csvio, indicators, records, settings, stats
 from .services.providers import ProviderError, ecos
 from .util import AppError
@@ -35,31 +35,46 @@ def create_app(db_file: Path | None = None) -> FastAPI:
         # 변경 요청에는 커스텀 헤더를 요구한다 → 다른 웹사이트에서의 위조 요청(CSRF)을 브라우저가 차단.
         if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/"):
             if request.headers.get("x-requested-with") != "asset-manager":
-                return JSONResponse({"detail": "허용되지 않은 요청입니다."}, status_code=403)
+                return JSONResponse({"detail": "허용되지 않은 요청입니다.", "code": None}, status_code=403)
         response = await call_next(request)
         if not request.url.path.startswith("/api/"):
             # 프로그램을 업데이트한 뒤 예전 화면 파일이 캐시에서 쓰이지 않도록 항상 다시 확인하게 한다.
             response.headers["Cache-Control"] = "no-cache"
         return response
 
+    def current_language() -> str:
+        # 언어의 단일 진실 원천은 설정 DB 다(요청 헤더는 보지 않는다). 읽지 못하면 한국어.
+        try:
+            conn = db.connect(db_file)
+            try:
+                return settings.language(conn)
+            finally:
+                conn.close()
+        except Exception:
+            return i18n.DEFAULT_LANGUAGE
+
+    def error_response(code: str | None, detail: str, status: int) -> JSONResponse:
+        return JSONResponse({"detail": detail, "code": code}, status_code=status)
+
     @app.exception_handler(AppError)
     async def app_error(_req, exc: AppError):
-        return JSONResponse({"detail": str(exc)}, status_code=400)
+        return error_response(exc.code, exc.message(current_language()), 400)
 
     @app.exception_handler(sqlite3.IntegrityError)
     async def integrity_error(_req, exc):
         msg = str(exc)
         if "FOREIGN KEY" in msg:
-            msg = "다른 기록이 참조하고 있어 처리할 수 없습니다."
+            code = "db.foreign_key"
         elif "UNIQUE" in msg:
-            msg = "이미 같은 값이 존재합니다."
+            code = "db.unique"
         else:
-            msg = f"데이터 무결성 오류: {msg}"
-        return JSONResponse({"detail": msg}, status_code=400)
+            code = "db.integrity"
+        return error_response(code, i18n.tr(code, current_language(), detail=msg), 400)
 
     @app.exception_handler(sqlite3.OperationalError)
     async def op_error(_req, exc):
-        return JSONResponse({"detail": f"데이터베이스 오류로 저장하지 못했습니다: {exc}"}, status_code=500)
+        code = "db.operational"
+        return error_response(code, i18n.tr(code, current_language(), detail=str(exc)), 500)
 
     def get_conn():
         conn = db.connect(db_file)
@@ -103,7 +118,7 @@ def create_app(db_file: Path | None = None) -> FastAPI:
         which = data.get("which", "data")
         p = {"data": config.data_dir(), "backups": config.backup_dir(), "exports": config.data_dir() / "exports"}.get(which)
         if p is None:
-            raise AppError("알 수 없는 폴더입니다.")
+            raise AppError.of("server.unknown_folder")
         p.mkdir(exist_ok=True)
         if hasattr(os, "startfile"):
             os.startfile(str(p))  # noqa: S606 (로컬 탐색기 열기)
@@ -411,7 +426,7 @@ def create_app(db_file: Path | None = None) -> FastAPI:
     async def restore_upload(request: Request, conn=C):
         data = await request.body()
         if not data:
-            raise AppError("파일이 비어 있습니다.")
+            raise AppError.of("backup.empty_upload")
         fd, tmp = tempfile.mkstemp(suffix=".db")
         try:
             with os.fdopen(fd, "wb") as f:
@@ -446,8 +461,8 @@ def create_app(db_file: Path | None = None) -> FastAPI:
         return maybe_save(csvio.export_indicator_values(conn, iid), f"지표_{iid}", save)
 
     @app.get("/api/templates/{name}")
-    def get_template(name: str, save: bool = False):
-        return maybe_save(csvio.template(name), f"양식_{name}", save)
+    def get_template(name: str, save: bool = False, conn=C):
+        return maybe_save(csvio.template(name, settings.language(conn)), f"양식_{name}", save)
 
     @app.post("/api/import/records")
     async def import_records(request: Request, dry_run: bool = True, create_missing: bool = False, conn=C):

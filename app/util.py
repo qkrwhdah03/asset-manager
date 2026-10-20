@@ -3,9 +3,30 @@ import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from . import i18n
+
 
 class AppError(ValueError):
-    """사용자에게 그대로 보여줄 수 있는 검증 오류."""
+    """사용자에게 그대로 보여줄 수 있는 검증 오류.
+
+    코드가 있으면(AppError.of) 현재 언어로 다시 렌더할 수 있다. str(exc) 는 항상 한국어 문장이다.
+    """
+
+    def __init__(self, message: str = "", *, code: str | None = None, params: dict | None = None):
+        self.code = code
+        self.params = dict(params or {})
+        if code is not None and not message:
+            message = i18n.tr(code, i18n.DEFAULT_LANGUAGE, **self.params)
+        super().__init__(message)
+
+    @classmethod
+    def of(cls, code: str, **params) -> "AppError":
+        return cls(i18n.tr(code, i18n.DEFAULT_LANGUAGE, **params), code=code, params=params)
+
+    def message(self, lang: str) -> str:
+        if self.code is not None:
+            return i18n.tr(self.code, lang, **self.params)
+        return str(self)
 
 
 MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
@@ -16,67 +37,67 @@ def parse_month(value, field: str = "월") -> str:
     s = str(value or "").strip().replace(".", "-").replace("/", "-")
     m = re.match(r"^(\d{4})-(\d{1,2})$", s)
     if not m:
-        raise AppError(f"{field} 형식이 올바르지 않습니다(YYYY-MM): '{value}'")
+        raise AppError.of("value.month_format", field=field, value=value)
     y, mo = int(m.group(1)), int(m.group(2))
     if not (1 <= mo <= 12) or not (1900 <= y <= 2999):
-        raise AppError(f"{field} 값이 올바르지 않습니다: '{value}'")
+        raise AppError.of("value.month_invalid", field=field, value=value)
     return f"{y:04d}-{mo:02d}"
 
 
 def parse_date(value, field: str = "날짜", required: bool = True) -> str | None:
     if value is None or str(value).strip() == "":
         if required:
-            raise AppError(f"{field}을(를) 입력하세요.")
+            raise AppError.of("value.required", field=field, value=value)
         return None
     s = str(value).strip().replace(".", "-").replace("/", "-")
     m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", s)
     if not m:
-        raise AppError(f"{field} 형식이 올바르지 않습니다(YYYY-MM-DD): '{value}'")
+        raise AppError.of("value.date_format", field=field, value=value)
     try:
         d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     except ValueError:
-        raise AppError(f"존재하지 않는 날짜입니다: '{value}'") from None
+        raise AppError.of("value.date_nonexistent", field=field, value=value) from None
     return d.isoformat()
 
 
 def parse_amount(value, field: str = "금액", allow_negative: bool = False, allow_zero: bool = True) -> int:
     """원화 금액을 정수로 변환한다. '1,234원', ' 1234 ' 등을 허용한다. 소수는 거부한다."""
     if isinstance(value, bool):
-        raise AppError(f"{field} 값이 올바르지 않습니다.")
+        raise AppError.of("value.invalid", field=field, value=value)
     if isinstance(value, int):
         n = value
     else:
         s = str(value if value is not None else "").strip().replace(",", "").replace("원", "").replace(" ", "")
         if s == "":
-            raise AppError(f"{field}을(를) 입력하세요.")
+            raise AppError.of("value.required", field=field, value=value)
         try:
             d = Decimal(s)
         except InvalidOperation:
-            raise AppError(f"{field}은(는) 숫자여야 합니다: '{value}'") from None
+            raise AppError.of("value.not_number", field=field, value=value) from None
         if d != d.to_integral_value():
-            raise AppError(f"{field}은(는) 원 단위 정수여야 합니다: '{value}'")
+            raise AppError.of("value.not_integer_won", field=field, value=value)
         n = int(d)
     if not allow_negative and n < 0:
-        raise AppError(f"{field}은(는) 0 이상이어야 합니다.")
+        raise AppError.of("value.negative", field=field, value=value)
     if not allow_zero and n == 0:
-        raise AppError(f"{field}은(는) 0이 될 수 없습니다.")
+        raise AppError.of("value.zero", field=field, value=value)
     if abs(n) > 10**15:
-        raise AppError(f"{field}이(가) 너무 큽니다.")
+        raise AppError.of("value.too_large", field=field, value=value)
     return n
 
 
 def parse_decimal(value, field: str, positive: bool = True) -> Decimal:
     s = str(value if value is not None else "").strip().replace(",", "")
     if s == "":
-        raise AppError(f"{field}을(를) 입력하세요.")
+        raise AppError.of("value.required", field=field, value=value)
     try:
         d = Decimal(s)
     except InvalidOperation:
-        raise AppError(f"{field}은(는) 숫자여야 합니다: '{value}'") from None
+        raise AppError.of("value.not_number", field=field, value=value) from None
     if not d.is_finite():
-        raise AppError(f"{field} 값이 올바르지 않습니다.")
+        raise AppError.of("value.invalid", field=field, value=value)
     if positive and d <= 0:
-        raise AppError(f"{field}은(는) 0보다 커야 합니다.")
+        raise AppError.of("value.not_positive", field=field, value=value)
     return d
 
 
@@ -104,7 +125,7 @@ def month_range(start: str, end: str) -> list[str]:
         out.append(cur)
         cur = add_months(cur, 1)
         if len(out) > 1200:
-            raise AppError("기간이 너무 깁니다.")
+            raise AppError.of("period.too_long")
     return out
 
 
@@ -118,7 +139,7 @@ def month_end(month: str) -> str:
 def clean_text(value, max_len: int = 500) -> str:
     s = str(value or "").strip()
     if len(s) > max_len:
-        raise AppError(f"텍스트가 너무 깁니다(최대 {max_len}자).")
+        raise AppError.of("text.too_long", max_len=max_len)
     return s
 
 

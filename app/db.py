@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import config
+from . import config, i18n
 
 MIGRATIONS: list[str] = [
     # v0 -> v1 : 초기 스키마
@@ -254,8 +254,12 @@ def get_version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
-def migrate(conn: sqlite3.Connection, db_file: Path | None = None) -> int:
-    """스키마를 최신 버전으로 올린다. 반환값: 마이그레이션 전 버전."""
+def migrate(conn: sqlite3.Connection, db_file: Path | None = None, lang: str | None = None) -> int:
+    """스키마를 최신 버전으로 올린다. 반환값: 마이그레이션 전 버전.
+
+    새 DB(시작 버전 0)일 때만 lang(없으면 OS 언어)으로 기본 항목·자산 유형 이름과 언어 설정을 정한다.
+    기존 DB 에서는 lang 을 무시한다(사용자 데이터 불변).
+    """
     current = get_version(conn)
     if current > SCHEMA_VERSION:
         raise RuntimeError(
@@ -283,7 +287,28 @@ def migrate(conn: sqlite3.Connection, db_file: Path | None = None) -> int:
         except Exception:
             conn.execute("ROLLBACK")
             raise
+    if current == 0:
+        # 이름 번역은 반드시 모든 마이그레이션 뒤에 한다(v2->v3 이 한국어 이름으로 소득 항목을 판정한다).
+        try:
+            conn.execute("BEGIN")
+            _localize_defaults(conn, lang)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
     return current
+
+
+def _localize_defaults(conn: sqlite3.Connection, lang: str | None) -> None:
+    """새 DB 의 기본 이름을 언어에 맞추고 language 설정을 넣는다. 호출자가 트랜잭션을 연다."""
+    lang = i18n.normalize(lang or config.system_language())
+    if lang == "en":
+        for ko, en in i18n.DEFAULT_CATEGORY_NAMES.items():
+            conn.execute("UPDATE categories SET name=? WHERE name=?", (en, ko))
+        for ko, en in i18n.DEFAULT_ASSET_TYPE_NAMES.items():
+            conn.execute("UPDATE asset_types SET name=? WHERE name=?", (en, ko))
+    conn.execute("INSERT INTO settings (key, value) VALUES ('language', ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (lang,))
 
 
 def _split_sql(script: str) -> list[str]:
@@ -316,8 +341,8 @@ def _seed(conn: sqlite3.Connection) -> None:
         )
 
 
-def init_db(path: Path | str | None = None) -> sqlite3.Connection:
+def init_db(path: Path | str | None = None, lang: str | None = None) -> sqlite3.Connection:
     p = Path(path) if path else config.db_path()
     conn = connect(p)
-    migrate(conn, p)
+    migrate(conn, p, lang=lang)
     return conn

@@ -1,21 +1,60 @@
 import {
   html, useState, useEffect, useApi, api, useApp, won, Empty, toast, toastErr, setParams, exportFile, pickFile, confirmBox, nextColor,
+  t, monthLabel, dateLabel, today, thisMonth,
 } from "../lib.js";
 import { MoveDialog } from "./move.js";
 
-const TABS = [["categories", "항목"], ["data", "백업·복원"], ["csv", "CSV 가져오기·내보내기"]];
+// [키, 탭 이름 문구 키(t)]
+const TABS = [["categories", "settings.tab.categories"], ["data", "settings.tab.data"], ["csv", "settings.tab.csv"],
+              ["display", "settings.tab.display"]];
 
 export function SettingsPage({ params }) {
   const { reloadCategories } = useApp();
   useEffect(() => { reloadCategories(); }, []);
   const tab = TABS.some(([k]) => k === params.tab) ? params.tab : "categories";
   return html`<div class="page">
-    <div class="page-head"><h1>설정 및 데이터 관리</h1></div>
-    <div class="tabs">${TABS.map(([k, l]) => html`<button class=${tab === k ? "on" : ""} onClick=${() => setParams({ tab: k })}>${l}</button>`)}</div>
+    <div class="page-head"><h1>${t("settings.title")}</h1></div>
+    <div class="tabs">${TABS.map(([k, l]) => html`<button class=${tab === k ? "on" : ""} onClick=${() => setParams({ tab: k })}>${t(l)}</button>`)}</div>
     ${tab === "categories" && html`<div class="grid c2"><${CategoryList} kind="income" /><${CategoryList} kind="expense" /></div>`}
     ${tab === "data" && html`<${BackupView} />`}
     ${tab === "csv" && html`<${CsvView} />`}
+    ${tab === "display" && html`<${DisplayView} />`}
   </div>`;
+}
+
+// 표시(D-17): 언어·날짜 표기·금액 단위. 선택지 라벨은 실제 예시 그대로 보여 준다(언어와 무관).
+const DISPLAY_OPTIONS = {
+  language: [["ko", "한국어"], ["en", "English"]],
+  date_format: [["auto", null], ["iso", "2026-10-21"], ["dot", "2026.10.21"], ["ko", "2026년 10월 21일"], ["en", "Oct 21, 2026"]],
+  currency_display: [["auto", null], ["won", "1,234,000원"], ["symbol", "₩1,234,000"], ["code", "KRW 1,234,000"]],
+};
+
+function DisplayView() {
+  const { settings, reloadSettings } = useApp();
+  const [busy, setBusy] = useState(false);
+  const change = async (key, value) => {
+    setBusy(true);
+    try {
+      await api("/settings", { method: "PUT", body: { [key]: value } });
+      await reloadSettings();
+      toast(t("display.saved"), "ok");
+    } catch (e) { toastErr(e); }
+    finally { setBusy(false); }
+  };
+  const select = (key) => html`<select value=${settings[key] || DISPLAY_OPTIONS[key][0][0]} disabled=${busy}
+      onChange=${(e) => change(key, e.target.value)}>
+    ${DISPLAY_OPTIONS[key].map(([v, l]) => html`<option value=${v}>${l ?? t("display.auto")}</option>`)}</select>`;
+  return html`<div class="panel display-settings"><div class="panel-head"><h2>${t("display.title")}</h2></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <label>${t("display.language")}</label>${select("language")}
+        <label>${t("display.date_format")}</label>${select("date_format")}
+        <label>${t("display.currency")}</label>${select("currency_display")}
+        <label>${t("display.preview")}</label>
+        <div>${t("display.preview_line", { date: dateLabel(today()), month: monthLabel(thisMonth()), amount: won(1234000) })}</div>
+      </div>
+      <p class="muted small">${t("display.note")}</p>
+    </div></div>`;
 }
 
 // 항목: 모든 달에 똑같이 적용된다. 각 달에서는 항목 아래에 세부항목만 기록한다.

@@ -52,10 +52,10 @@ def list_backups() -> list[dict]:
 def backup_path(name: str) -> Path:
     # 경로 조작 방지: 백업 폴더 안의 파일 이름만 허용
     if not name or "/" in name or "\\" in name or ".." in name or not name.endswith(".db"):
-        raise AppError("백업 파일 이름이 올바르지 않습니다.")
+        raise AppError.of("backup.invalid_name")
     p = config.backup_dir() / name
     if not p.exists():
-        raise AppError("백업 파일을 찾을 수 없습니다.")
+        raise AppError.of("backup.not_found")
     return p
 
 
@@ -68,31 +68,31 @@ def validate_backup_file(path: Path) -> dict:
         with open(path, "rb") as f:
             header = f.read(16)
     except OSError:
-        raise AppError("백업 파일을 읽을 수 없습니다.") from None
+        raise AppError.of("backup.unreadable") from None
     if header != b"SQLite format 3\x00":
-        raise AppError("SQLite 데이터베이스 파일이 아닙니다.")
+        raise AppError.of("backup.not_sqlite")
     try:
         src = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     except sqlite3.Error as e:
-        raise AppError(f"백업 파일을 열 수 없습니다: {e}") from None
+        raise AppError.of("backup.cannot_open", error=str(e)) from None
     try:
         ok = src.execute("PRAGMA integrity_check").fetchone()[0]
         if ok != "ok":
-            raise AppError(f"백업 파일이 손상되었습니다: {ok}")
+            raise AppError.of("backup.corrupt", detail=ok)
         version = src.execute("PRAGMA user_version").fetchone()[0]
         if version > db.SCHEMA_VERSION:
-            raise AppError(f"더 새로운 버전(v{version})의 프로그램에서 만든 백업입니다. 프로그램을 업데이트하세요.")
+            raise AppError.of("backup.newer_version", version=version)
         if version < 1:
-            raise AppError("이 프로그램의 백업 파일이 아닙니다(스키마 버전 없음).")
+            raise AppError.of("backup.no_version")
         tables = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         missing = db.REQUIRED_TABLES - tables if version == db.SCHEMA_VERSION else set()
         if missing:
-            raise AppError(f"필수 테이블이 없습니다: {', '.join(sorted(missing))}")
+            raise AppError.of("backup.missing_tables", tables=", ".join(sorted(missing)))
         counts = {t: src.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("records", "categories", "accounts", "asset_txns", "indicators") if t in tables}
         return {"version": version, "counts": counts}
     except sqlite3.DatabaseError as e:
-        raise AppError(f"백업 파일을 검사할 수 없습니다: {e}") from None
+        raise AppError.of("backup.cannot_inspect", error=str(e)) from None
     finally:
         src.close()
 
@@ -119,18 +119,24 @@ def reset(conn: sqlite3.Connection, mode: str) -> dict:
     - all     : 처음 설치한 상태(기본 항목만 있는 새 데이터)로 되돌린다. 항목·설정(API 키)·숨긴 자산·지표 데이터도 지운다.
     """
     if mode not in RESET_MODES:
-        raise AppError("초기화 방식이 올바르지 않습니다.")
+        raise AppError.of("reset.invalid_mode")
     safety = create_backup(conn, "pre_reset")
     if mode == "records":
         with conn:
             n = conn.execute("DELETE FROM records").rowcount
         return {"reset": mode, "deleted_records": n, "safety_backup": safety["name"]}
     import tempfile
+    from . import settings  # 표시 설정(언어·날짜·금액 단위)은 전체 초기화 뒤에도 유지한다
+    display = settings.get_display(conn)
     with tempfile.TemporaryDirectory() as tmp:
-        fresh = db.init_db(Path(tmp) / "fresh.db")  # 새 DB 를 만들어(기본 항목 포함) 현재 DB 에 그대로 덮어쓴다
+        # 새 DB 를 현재 언어로 만들어(기본 항목 포함) 현재 DB 에 그대로 덮어쓴다
+        fresh = db.init_db(Path(tmp) / "fresh.db", lang=display["language"])
         try:
             fresh.backup(conn)
         finally:
             fresh.close()
     db.migrate(conn)
+    keep = {k: v for k, v in display.items() if k != "language" and v != settings.DEFAULTS[k]}
+    if keep:
+        settings.set_many(conn, keep)
     return {"reset": mode, "safety_backup": safety["name"]}

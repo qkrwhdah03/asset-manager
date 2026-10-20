@@ -13,18 +13,18 @@ def validate_record(conn: sqlite3.Connection, data: dict, existing: dict | None 
     merged = {**(existing or {}), **data}
     kind = merged.get("kind")
     if kind not in KINDS:
-        raise AppError("기록 구분이 올바르지 않습니다(income/plan/expense).")
+        raise AppError.of("record.invalid_kind")
     try:
         category_id = int(merged.get("category_id"))
     except (TypeError, ValueError):
-        raise AppError("항목을 선택하세요.") from None
+        raise AppError.of("category.select") from None
     cat = conn.execute("SELECT id, is_active, kind FROM categories WHERE id = ?", (category_id,)).fetchone()
     if not cat:
-        raise AppError("선택한 항목이 존재하지 않습니다.")
+        raise AppError.of("record.category_missing")
     new_link = existing is None or existing.get("category_id") != category_id
     # 소득 기록은 소득 항목에, 계획·지출 기록은 지출 항목에만 연결한다(예전 데이터의 기존 연결은 유지).
     if new_link and cat["kind"] != RECORD_KIND_TO_CATEGORY[kind]:
-        raise AppError("수입은 소득 항목에, 지출 계획·실제 지출은 지출 항목에만 기록할 수 있습니다.")
+        raise AppError.of("record.kind_mismatch")
 
     # 금액: 환불·정정을 위해 음수 허용. 막 추가한 세부항목은 0원일 수 있다.
     amount = parse_amount(merged.get("amount") if merged.get("amount") not in (None, "") else 0, allow_negative=True)
@@ -39,7 +39,7 @@ def validate_record(conn: sqlite3.Connection, data: dict, existing: dict | None 
         budget_month = (parse_month(bm, "예산 월") if bm
                         else month_of(txn_date) or (parse_month(m, "월") if m else None))
         if not budget_month:
-            raise AppError("입금일 또는 예산 월을 입력하세요.")
+            raise AppError.of("record.income_month_required")
         month = month_of(txn_date) or budget_month
     elif kind == "plan":
         month = parse_month(merged.get("month"), "계획 월")
@@ -49,9 +49,9 @@ def validate_record(conn: sqlite3.Connection, data: dict, existing: dict | None 
         m = merged.get("month")
         month = parse_month(m, "월") if m else month_of(txn_date)
         if not month:
-            raise AppError("월 또는 발생일을 입력하세요.")
+            raise AppError.of("record.expense_month_required")
         if settle_date and txn_date and settle_date < txn_date:
-            raise AppError("결제일은 발생일보다 빠를 수 없습니다.")
+            raise AppError.of("record.settle_before_txn")
     return dict(kind=kind, category_id=category_id, amount=amount, month=month,
                 txn_date=txn_date, settle_date=settle_date, budget_month=budget_month, memo=memo, item=item)
 
@@ -65,7 +65,7 @@ def get_record(conn, rid: int) -> dict:
         (rid,),
     ).fetchone()
     if not r:
-        raise AppError("기록을 찾을 수 없습니다.")
+        raise AppError.of("record.not_found")
     return _decorate(dict(r))
 
 
@@ -88,7 +88,7 @@ def create_record(conn, data: dict) -> dict:
 def update_record(conn, rid: int, data: dict) -> dict:
     existing = dict(conn.execute("SELECT * FROM records WHERE id = ?", (rid,)).fetchone() or {})
     if not existing:
-        raise AppError("기록을 찾을 수 없습니다.")
+        raise AppError.of("record.not_found")
     data = {k: v for k, v in data.items() if k != "kind"}  # 구분 변경은 허용하지 않는다
     v = validate_record(conn, data, existing)
     with conn:
@@ -110,13 +110,13 @@ def move_records(conn, ids: list, category_id=None, new_category: dict | None = 
     try:
         ids = [int(i) for i in ids]
     except (TypeError, ValueError):
-        raise AppError("옮길 기록 목록이 올바르지 않습니다.") from None
+        raise AppError.of("record.move_invalid_ids") from None
     if not ids:
-        raise AppError("옮길 기록을 하나 이상 고르세요.")
+        raise AppError.of("record.move_empty")
     marks = ",".join("?" * len(ids))
     kinds = {RECORD_KIND_TO_CATEGORY[r["kind"]] for r in conn.execute(f"SELECT kind FROM records WHERE id IN ({marks})", ids)}
     if len(kinds) != 1:
-        raise AppError("소득 기록과 지출 기록은 함께 옮길 수 없습니다.")
+        raise AppError.of("record.move_mixed")
     want = kinds.pop()
     from . import categories as cats  # 순환 참조를 피하려고 함수 안에서 불러온다
     with transaction(conn):
@@ -129,12 +129,12 @@ def move_records(conn, ids: list, category_id=None, new_category: dict | None = 
             try:
                 cid = int(category_id)
             except (TypeError, ValueError):
-                raise AppError("옮겨 갈 항목을 고르세요.") from None
+                raise AppError.of("record.move_select_target") from None
             cat = conn.execute("SELECT kind FROM categories WHERE id=?", (cid,)).fetchone()
             if not cat:
-                raise AppError("옮겨 갈 항목이 존재하지 않습니다.")
+                raise AppError.of("record.move_target_missing")
             if cat["kind"] != want:
-                raise AppError("소득 기록은 소득 항목으로, 지출 기록은 지출 항목으로만 옮길 수 있습니다.")
+                raise AppError.of("record.move_kind_mismatch")
         n = conn.execute(f"UPDATE records SET category_id=?, updated_at=datetime('now','localtime') WHERE id IN ({marks})",
                          (cid, *ids)).rowcount
     return {"moved": n, "category_id": cid}
@@ -144,7 +144,7 @@ def bulk_delete_records(conn, ids: list) -> dict:
     try:
         ids = [int(i) for i in ids]
     except (TypeError, ValueError):
-        raise AppError("삭제할 기록 목록이 올바르지 않습니다.") from None
+        raise AppError.of("record.delete_invalid_ids") from None
     if not ids:
         return {"deleted": 0}
     with conn:
@@ -156,7 +156,7 @@ def delete_record(conn, rid: int) -> None:
     with conn:
         cur = conn.execute("DELETE FROM records WHERE id = ?", (rid,))
     if cur.rowcount == 0:
-        raise AppError("기록을 찾을 수 없습니다.")
+        raise AppError.of("record.not_found")
 
 
 def month_expr(kind: str, basis: str) -> str:
@@ -180,7 +180,7 @@ def list_records(conn, kind: str | None = None, month: str | None = None, basis:
     where, params = [], []
     if kind:
         if kind not in KINDS:
-            raise AppError("기록 구분이 올바르지 않습니다.")
+            raise AppError.of("record.invalid_kind_short")
         where.append("r.kind = ?")
         params.append(kind)
         mexpr = month_expr(kind, basis)

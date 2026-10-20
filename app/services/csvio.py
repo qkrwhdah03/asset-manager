@@ -9,32 +9,44 @@ import csv
 import io
 import sqlite3
 
+from .. import i18n
 from ..util import AppError, clean_text, parse_date, parse_decimal, dec_str
-from . import assets, records
+from . import assets, records, settings
 from .assets import TXN_KINDS
 
 MAX_ROWS = 50000
 
 RECORD_KIND_ALIASES = {
     "income": "income", "수입": "income",
-    "plan": "plan", "계획": "plan", "지출계획": "plan", "지출 계획": "plan",
-    "expense": "expense", "지출": "expense", "실제지출": "expense", "실제 지출": "expense",
+    "plan": "plan", "계획": "plan", "지출계획": "plan", "지출 계획": "plan", "planned": "plan",
+    "expense": "expense", "지출": "expense", "실제지출": "expense", "실제 지출": "expense", "actual": "expense",
 }
 TXN_KIND_ALIASES = {**{k: k for k in TXN_KINDS}, **{v: k for k, v in TXN_KINDS.items()},
                     "배당": "dividend", "평가": "valuation", "조정": "adjustment", "평가액변동": "valuation",
                     "기타조정": "adjustment"}
 
-RECORD_COLUMNS = ["구분", "항목", "세부항목", "금액", "월", "거래일", "결제일", "예산월", "메모"]
+# 내보내기 열 이름(언어별). 가져오기는 현재 언어와 무관하게 두 언어 열 이름을 모두 받는다(RECORD_ALIASES).
+RECORD_COLUMNS: dict[str, list[str]] = {
+    "ko": ["구분", "항목", "세부항목", "금액", "월", "거래일", "결제일", "예산월", "메모"],
+    "en": ["Type", "Category", "Item", "Amount", "Month", "Date", "Settle date", "Budget month", "Memo"],
+}
+RECORD_FIELDS = ["kind", "category", "item", "amount", "month", "txn_date", "settle_date", "budget_month", "memo"]
+RECORD_KIND_LABELS = {
+    "ko": {"income": "수입", "plan": "지출계획", "expense": "실제지출"},
+    "en": {"income": "Income", "plan": "Plan", "expense": "Expense"},
+}
+CATEGORY_COLUMNS = {"ko": ["종류", "항목"], "en": ["Kind", "Category"]}
+CATEGORY_KIND_LABELS = {"ko": {"income": "소득", "expense": "지출"}, "en": {"income": "Income", "expense": "Expense"}}
 RECORD_ALIASES = {
-    "kind": ["구분", "kind", "영역"],
+    "kind": ["구분", "kind", "영역", "type"],
     "category": ["항목", "카테고리", "category", "항목명"],
     "item": ["세부항목", "세부항목", "item"],
     "amount": ["금액", "amount"],
     "month": ["월", "귀속월", "귀속 월", "month"],
     "txn_date": ["거래일", "입금일", "실제입금일", "실제 입금일", "발생일", "날짜", "date", "txn_date"],
-    "settle_date": ["결제일", "settle_date"],
-    "budget_month": ["예산월", "예산 월", "budget_month"],
-    "memo": ["메모", "memo", "비고"],
+    "settle_date": ["결제일", "settle_date", "settle date", "settlement date"],
+    "budget_month": ["예산월", "예산 월", "budget_month", "budget month"],
+    "memo": ["메모", "memo", "비고", "note"],
 }
 TXN_COLUMNS = ["날짜", "유형", "계좌", "상대계좌", "종목코드", "종목명", "수량", "단가", "금액", "수수료", "메모"]
 TXN_ALIASES = {
@@ -54,13 +66,13 @@ TXN_ALIASES = {
 
 def decode(data: bytes) -> str:
     if len(data) > 20 * 1024 * 1024:
-        raise AppError("파일이 너무 큽니다(최대 20MB).")
+        raise AppError.of("csv.too_large")
     for enc in ("utf-8-sig", "cp949"):
         try:
             return data.decode(enc)
         except UnicodeDecodeError:
             continue
-    raise AppError("파일 인코딩을 인식할 수 없습니다. UTF-8 또는 CP949(ANSI)로 저장하세요.")
+    raise AppError.of("csv.bad_encoding")
 
 
 def _write(header: list[str], data: list[list]) -> bytes:
@@ -71,12 +83,14 @@ def _write(header: list[str], data: list[list]) -> bytes:
     return ("﻿" + buf.getvalue()).encode("utf-8")
 
 
-def _read(text: str, aliases: dict[str, list[str]], required: list[str]) -> list[tuple[int, dict]]:
+def _read(text: str, aliases: dict[str, list[str]], required: list[str],
+          labels: dict[str, str] | None = None) -> list[tuple[int, dict]]:
+    """labels: 필수 열 누락 메시지에 쓸 열 이름(key -> 이름). 없으면 aliases 의 첫 이름."""
     reader = csv.reader(io.StringIO(text))
     try:
         header = next(reader)
     except StopIteration:
-        raise AppError("빈 파일입니다.") from None
+        raise AppError.of("csv.empty_file") from None
     norm = [h.strip().lstrip("﻿").lower() for h in header]
     index = {}
     for key, names in aliases.items():
@@ -84,21 +98,22 @@ def _read(text: str, aliases: dict[str, list[str]], required: list[str]) -> list
             if n.lower() in norm:
                 index[key] = norm.index(n.lower())
                 break
-    missing = [aliases[k][0] for k in required if k not in index]
+    missing = [(labels or {}).get(k) or aliases[k][0] for k in required if k not in index]
     if missing:
-        raise AppError(f"필수 열이 없습니다: {', '.join(missing)}  (첫 행은 열 이름이어야 합니다)")
+        raise AppError.of("csv.missing_columns", columns=", ".join(missing))
     out = []
     for lineno, row in enumerate(reader, start=2):
         if not any(c.strip() for c in row):
             continue
         out.append((lineno, {k: (row[i].strip() if i < len(row) else "") for k, i in index.items()}))
         if len(out) > MAX_ROWS:
-            raise AppError(f"행이 너무 많습니다(최대 {MAX_ROWS}행).")
+            raise AppError.of("csv.too_many_rows", max_rows=MAX_ROWS)
     return out
 
 
 def _run_import(conn: sqlite3.Connection, parsed, handler, dry_run: bool, finalize=None) -> dict:
     errors, preview, created = [], [], []
+    lang = settings.language(conn)
     if conn.in_transaction:
         conn.commit()
     conn.execute("BEGIN")
@@ -109,14 +124,14 @@ def _run_import(conn: sqlite3.Connection, parsed, handler, dry_run: bool, finali
                 if len(preview) < 20:
                     preview.append({"row": lineno, **item})
             except AppError as e:
-                errors.append({"row": lineno, "message": str(e)})
+                errors.append({"row": lineno, "message": e.message(lang)})
                 if len(errors) >= 200:
                     break
         if not errors and finalize:
             try:
                 finalize()
             except AppError as e:
-                errors.append({"row": None, "message": str(e)})
+                errors.append({"row": None, "message": e.message(lang)})
     except Exception:
         conn.rollback()
         raise
@@ -131,11 +146,12 @@ def _run_import(conn: sqlite3.Connection, parsed, handler, dry_run: bool, finali
 # ───────────────────────── 수입·지출 기록 ─────────────────────────
 
 def export_records(conn, kind: str | None = None, start: str | None = None, end: str | None = None) -> bytes:
+    lang = settings.language(conn)
     data = records.list_records(conn, kind=kind, start=start, end=end)
-    label = {"income": "수입", "plan": "지출계획", "expense": "실제지출"}
+    label = RECORD_KIND_LABELS[lang]
     data = [r for r in data if r["amount"] != 0]  # 0원 봉투 표시용 행은 제외
     data.sort(key=lambda r: (r["month"], r["kind"], r["id"]))
-    return _write(RECORD_COLUMNS, [[label[r["kind"]], r["category_name"], r["item"], r["amount"], r["month"],
+    return _write(RECORD_COLUMNS[lang], [[label[r["kind"]], r["category_name"], r["item"], r["amount"], r["month"],
                                     r["txn_date"] or "", r["settle_date"] or "", r["budget_month"] or "", r["memo"]] for r in data])
 
 
@@ -143,25 +159,25 @@ def _find_or_create_category(conn, label: str, ckind: str, create: bool, created
     """ckind('income'/'expense') 종류에서 이름으로 항목을 찾는다(없으면 선택적으로 생성)."""
     name = label.strip()
     if not name:
-        raise AppError("항목이 비어 있습니다.")
+        raise AppError.of("csv.category_empty")
     r = conn.execute("SELECT id FROM categories WHERE kind=? AND parent_id IS NULL AND name=?", (ckind, name)).fetchone()
     if r:
         return r["id"]
     if not create:
-        kind_label = "소득" if ckind == "income" else "지출"
-        raise AppError(f"{kind_label} 항목 '{name}'이(가) 없습니다. 설정에서 만들거나 '없는 항목 자동 생성'을 선택하세요.")
+        raise AppError.of(f"csv.{ckind}_category_missing", name=name)
     created.append(name)
     return conn.execute("INSERT INTO categories (name, kind, sort_order) VALUES (?, ?, (SELECT IFNULL(MAX(sort_order),0)+1 FROM categories))",
                         (name, ckind)).lastrowid
 
 
 def import_records(conn, data: bytes, dry_run: bool = True, create_missing: bool = False) -> dict:
-    parsed = _read(decode(data), RECORD_ALIASES, ["kind", "category", "amount"])
+    labels = dict(zip(RECORD_FIELDS, RECORD_COLUMNS[settings.language(conn)]))
+    parsed = _read(decode(data), RECORD_ALIASES, ["kind", "category", "amount"], labels)
 
     def handle(row, created):
         kind = RECORD_KIND_ALIASES.get(row.get("kind", "").strip().lower()) or RECORD_KIND_ALIASES.get(row.get("kind", "").strip())
         if not kind:
-            raise AppError(f"구분 값 '{row.get('kind')}'을(를) 알 수 없습니다(수입/지출계획/실제지출).")
+            raise AppError.of("csv.unknown_record_kind", value=row.get("kind"))
         ckind = "income" if kind == "income" else "expense"
         label, item = row.get("category", ""), row.get("item", "")
         if ">" in label:  # 예전 형식 '항목 > 하위' 는 항목 + 세부항목으로 읽는다
@@ -198,13 +214,13 @@ def import_asset_txns(conn, data: bytes, dry_run: bool = True, create_missing_se
     def account_id(name: str, field: str) -> int:
         r = conn.execute("SELECT id FROM accounts WHERE name=?", (name.strip(),)).fetchone()
         if not r:
-            raise AppError(f"{field} '{name}'이(가) 없습니다. 자산 관리에서 먼저 계좌를 만드세요.")
+            raise AppError.of("csv.account_missing", field=field, name=name)
         return r["id"]
 
     def handle(row, created):
         kind = TXN_KIND_ALIASES.get(row.get("kind", "").strip()) or TXN_KIND_ALIASES.get(row.get("kind", "").strip().lower())
         if not kind:
-            raise AppError(f"유형 '{row.get('kind')}'을(를) 알 수 없습니다.")
+            raise AppError.of("csv.unknown_txn_kind", value=row.get("kind"))
         payload = {"kind": kind, "date": row.get("date"), "account_id": account_id(row.get("account", ""), "계좌"),
                    "quantity": row.get("quantity"), "price": row.get("price"), "amount": row.get("amount"),
                    "fee": row.get("fee") or 0, "memo": row.get("memo", "")}
@@ -215,7 +231,7 @@ def import_asset_txns(conn, data: bytes, dry_run: bool = True, create_missing_se
             s = conn.execute("SELECT id FROM securities WHERE symbol=?", (sym,)).fetchone()
             if not s:
                 if not create_missing_securities:
-                    raise AppError(f"종목 '{sym}'이(가) 등록되어 있지 않습니다.")
+                    raise AppError.of("csv.security_missing", symbol=sym)
                 sid = conn.execute("INSERT INTO securities (symbol, name) VALUES (?,?)",
                                    (sym, clean_text(row.get("security_name"), 80) or sym)).lastrowid
                 created.append(sym)
@@ -245,7 +261,7 @@ def import_prices(conn, data: bytes, dry_run: bool = True) -> dict:
     def handle(row, created):
         s = conn.execute("SELECT id FROM securities WHERE symbol=?", (row["symbol"].strip().upper(),)).fetchone()
         if not s:
-            raise AppError(f"종목 '{row['symbol']}'이(가) 등록되어 있지 않습니다.")
+            raise AppError.of("csv.security_missing", symbol=row["symbol"])
         d = parse_date(row["date"])
         p = dec_str(parse_decimal(row["price"], "가격"))
         conn.execute("""INSERT INTO security_prices (security_id, date, price, source) VALUES (?,?,?,'csv')
@@ -262,7 +278,7 @@ def export_indicator_values(conn, iid: int) -> bytes:
 
 def import_indicator_values(conn, iid: int, data: bytes, dry_run: bool = True) -> dict:
     if not conn.execute("SELECT 1 FROM indicators WHERE id=?", (iid,)).fetchone():
-        raise AppError("지표를 찾을 수 없습니다.")
+        raise AppError.of("csv.indicator_not_found")
     parsed = _read(decode(data), {"date": ["날짜", "date"], "value": ["값", "value"]}, ["date", "value"])
 
     def handle(row, created):
@@ -270,7 +286,7 @@ def import_indicator_values(conn, iid: int, data: bytes, dry_run: bool = True) -
         try:
             v = float(row["value"].replace(",", ""))
         except ValueError:
-            raise AppError(f"값 '{row['value']}'은(는) 숫자가 아닙니다.") from None
+            raise AppError.of("csv.value_not_number", value=row["value"]) from None
         conn.execute("""INSERT INTO indicator_values (indicator_id, date, value, source) VALUES (?,?,?,'csv')
                         ON CONFLICT(indicator_id, date) DO UPDATE SET value=excluded.value, source='csv',
                         updated_at=datetime('now','localtime')""", (iid, d, v))
@@ -280,14 +296,24 @@ def import_indicator_values(conn, iid: int, data: bytes, dry_run: bool = True) -
 
 
 def export_categories(conn) -> bytes:
+    lang = settings.language(conn)
+    labels = CATEGORY_KIND_LABELS[lang]
     data = conn.execute("SELECT kind, name FROM categories ORDER BY kind='expense', sort_order, id").fetchall()
-    return _write(["종류", "항목"], [["소득" if r[0] == "income" else "지출", r[1]] for r in data])
+    return _write(CATEGORY_COLUMNS[lang], [[labels.get(r[0], labels["expense"]), r[1]] for r in data])
 
 
+RECORD_TEMPLATES = {
+    "ko": (RECORD_COLUMNS["ko"], [["수입", "급여", "월급", "3000000", "", "2026-10-31", "", "2026-11", "10/31 입금 → 11월에 쓸 돈"],
+                                  ["지출계획", "식비", "", "300000", "2026-11", "", "", "", ""],
+                                  ["실제지출", "식비", "마트", "12000", "2026-11", "", "", "", ""]]),
+    "en": (RECORD_COLUMNS["en"], [["Income", "Salary", "Monthly pay", "3000000", "", "2026-10-31", "", "2026-11", "Paid 10/31 -> spend in Nov"],
+                                  ["Plan", "Food", "", "300000", "2026-11", "", "", "", ""],
+                                  ["Expense", "Food", "Groceries", "12000", "2026-11", "", "", "", ""]]),
+}
+
+# 숨김 양식(asset_txns·prices·indicator_values)은 언어와 무관하다.
 TEMPLATES = {
-    "records": (RECORD_COLUMNS, [["수입", "급여", "월급", "3000000", "", "2026-10-31", "", "2026-11", "10/31 입금 → 11월에 쓸 돈"],
-                                 ["지출계획", "식비", "", "300000", "2026-11", "", "", "", ""],
-                                 ["실제지출", "식비", "마트", "12000", "2026-11", "", "", "", ""]]),
+    "records": RECORD_TEMPLATES["ko"],
     "asset_txns": (TXN_COLUMNS, [["2026-10-01", "입금", "카카오페이증권", "", "", "", "", "", "1000000", "", "초기 입금"],
                                  ["2026-10-02", "매수", "카카오페이증권", "", "005930", "삼성전자", "10", "60000", "", "150", ""],
                                  ["2026-10-03", "이체", "생활비 통장", "카카오페이증권", "", "", "", "", "500000", "", ""]]),
@@ -296,8 +322,11 @@ TEMPLATES = {
 }
 
 
-def template(name: str) -> bytes:
+def template(name: str, lang: str = "ko") -> bytes:
     if name not in TEMPLATES:
-        raise AppError("알 수 없는 템플릿입니다.")
-    header, data = TEMPLATES[name]
+        raise AppError.of("csv.unknown_template")
+    if name == "records":
+        header, data = RECORD_TEMPLATES[i18n.normalize(lang)]
+    else:
+        header, data = TEMPLATES[name]
     return _write(header, data)

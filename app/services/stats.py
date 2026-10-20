@@ -19,7 +19,7 @@ BASIS_LABEL = {"budget": "예산 월 기준", "cash": "입금·결제일 기준"
 
 def _check_basis(basis: str) -> str:
     if basis not in BASES:
-        raise AppError("집계 기준이 올바르지 않습니다(budget/cash).")
+        raise AppError.of("stats.invalid_basis")
     return basis
 
 
@@ -182,7 +182,7 @@ def month_summary(conn, month: str, basis: str = "budget") -> dict:
 
 def annual(conn, year: int, basis: str = "budget") -> dict:
     if not (1900 <= int(year) <= 2999):
-        raise AppError("연도가 올바르지 않습니다.")
+        raise AppError.of("stats.invalid_year")
     months = trend(conn, f"{year}-01", f"{year}-12", basis)
     inc = sum(m["income"] for m in months)
     exp = sum(m["expense"] for m in months)

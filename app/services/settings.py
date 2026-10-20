@@ -1,11 +1,17 @@
 """로컬 설정(key-value). API 키는 로컬 DB 에만 저장하며 소스 코드에 넣지 않는다."""
+from .. import i18n
 from ..util import AppError
 
 SECRET_KEYS = {"ecos_api_key", "fred_api_key"}
 ALLOWED = {
     "ecos_api_key": None,
     "fred_api_key": None,
+    # 표시 설정(F-038·F-039). 저장 값은 그대로이고 화면 표시만 바뀐다.
+    "language": ("ko", "en"),
+    "date_format": ("auto", "iso", "dot", "ko", "en"),
+    "currency_display": ("auto", "won", "symbol", "code"),
 }
+DEFAULTS = {"language": "ko", "date_format": "auto", "currency_display": "auto"}
 
 
 def get(conn, key: str, default: str | None = None) -> str | None:
@@ -20,8 +26,23 @@ def get_public(conn) -> dict:
         if k in SECRET_KEYS:
             out[k + "_set"] = bool(v)
             out[k] = (v[:3] + "…" + v[-2:]) if v and len(v) > 6 else ("설정됨" if v else "")
+        elif k in DEFAULTS:
+            out[k] = v if v in ALLOWED[k] else DEFAULTS[k]
         else:
             out[k] = v
+    return out
+
+
+def language(conn) -> str:
+    """현재 언어("ko"/"en"). 저장값이 없거나 이상하면 "ko"."""
+    return i18n.normalize(get(conn, "language"))
+
+
+def get_display(conn) -> dict:
+    out = {}
+    for k, default in DEFAULTS.items():
+        v = get(conn, k)
+        out[k] = v if v in ALLOWED[k] else default
     return out
 
 
@@ -29,11 +50,11 @@ def set_many(conn, data: dict) -> dict:
     with conn:
         for k, v in data.items():
             if k not in ALLOWED:
-                raise AppError(f"알 수 없는 설정입니다: {k}")
+                raise AppError.of("settings.unknown_key", key=k)
             allowed = ALLOWED[k]
             v = (v or "").strip() if isinstance(v, str) or v is None else str(v)
-            if allowed and v not in allowed:
-                raise AppError(f"'{k}' 값이 올바르지 않습니다.")
+            if allowed and v != "" and v not in allowed:
+                raise AppError.of("settings.invalid_value", key=k)
             if v == "":
                 conn.execute("DELETE FROM settings WHERE key=?", (k,))
             else:

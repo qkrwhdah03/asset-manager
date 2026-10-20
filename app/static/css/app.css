@@ -273,3 +273,7 @@ tr:hover .move-x { visibility: visible; }
 
 /* 좁은 창: 표가 패널 밖으로 넘치지 않게 패널 안에서 가로 스크롤 */
 .panel > .panel-body.flush { overflow-x: auto; }
+
+/* 설정 > 표시 탭(D-17) */
+.display-settings { max-width: 560px; }
+.display-settings .form-grid { margin-bottom: 10px; }

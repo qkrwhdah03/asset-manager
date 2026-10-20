@@ -3,6 +3,7 @@
 데이터는 기본적으로 %LOCALAPPDATA%\\AssetManager 에 저장한다.
 환경 변수 ASSET_MANAGER_DATA_DIR 로 위치를 바꿀 수 있다(테스트·포터블 실행용).
 """
+import locale
 import os
 import sys
 from pathlib import Path
@@ -33,3 +34,23 @@ def static_dir() -> Path:
     # PyInstaller 번들 실행 시에는 _MEIPASS 아래에 정적 파일이 풀린다.
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
     return base / "app" / "static"
+
+
+def system_language() -> str:
+    """새 설치의 기본 언어("ko"/"en").
+
+    환경 변수 ASSET_MANAGER_LANG(ko/en)이 있으면 그것, 없으면 OS 표시 언어가 한국어면 "ko", 아니면 "en".
+    판단 중 어떤 예외가 나도 "ko".
+    """
+    try:
+        override = (os.environ.get("ASSET_MANAGER_LANG") or "").strip().lower()
+        if override in ("ko", "en"):
+            return override
+        if sys.platform == "win32":
+            import ctypes
+            langid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            return "ko" if (langid & 0x3FF) == 0x12 else "en"
+        name = locale.getlocale()[0] or ""
+        return "ko" if name.lower().startswith("ko") else "en"
+    except Exception:
+        return "ko"

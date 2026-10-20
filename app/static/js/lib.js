@@ -1,6 +1,8 @@
 // 공통 유틸리티: API 호출, 포맷, 토스트, 모달, 차트, 월 선택기
 import { html, render, useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "/vendor/preact-htm.module.js";
 export { html, render, useState, useEffect, useRef, useCallback, useMemo, createContext, useContext };
+import { t, setLocale, getLocale } from "./i18n.js";
+export { t, setLocale, getLocale };
 
 // ───────── API ─────────
 export class ApiError extends Error {}
@@ -70,21 +72,35 @@ export function useApi(path, params, deps = []) {
 }
 
 // ───────── 포맷 ─────────
-const nf = new Intl.NumberFormat("ko-KR");
+// 저장 값(금액=원 정수, 날짜=ISO)은 그대로 두고 표시만 현재 설정(getLocale)에 맞춘다.
+const nf = new Intl.NumberFormat("ko-KR");   // 금액 숫자 그룹은 언어와 무관하게 쉼표
+const numLocale = () => (getLocale().language === "en" ? "en-US" : "ko-KR");
 export const won = (n, { sign = false, unit = true } = {}) => {
   if (n === null || n === undefined || n === "") return "–";
-  const v = Number(n);
-  const s = nf.format(Math.round(v) + 0);
-  return (sign && v > 0 ? "+" : "") + s + (unit ? "원" : "");
+  const v = Math.round(Number(n)) + 0;
+  const s = nf.format(Math.abs(v));
+  const pre = v < 0 ? "-" : (sign && v > 0 ? "+" : "");
+  if (!unit) return pre + s;
+  const c = getLocale().currency;
+  if (c === "symbol") return pre + "₩" + s;
+  if (c === "code") return pre + "KRW " + s;
+  return pre + s + "원";
 };
 export const num = (n, d = 2) => (n === null || n === undefined || n === "") ? "–"
-  : Number(n).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
-export const qty = (s) => s === null || s === undefined ? "–" : Number(s).toLocaleString("ko-KR", { maximumFractionDigits: 6 });
+  : Number(n).toLocaleString(numLocale(), { minimumFractionDigits: d, maximumFractionDigits: d });
+export const qty = (s) => s === null || s === undefined ? "–" : Number(s).toLocaleString(numLocale(), { maximumFractionDigits: 6 });
 export const pct = (n, sign = false) => (n === null || n === undefined) ? "–" : (sign && n > 0 ? "+" : "") + Number(n).toFixed(1) + "%";
 export const cls = (n, invert = false) => (n === null || n === undefined || n === 0) ? "" : ((n > 0) !== invert ? "pos" : "neg");
-// 억/만 단위 축약 (차트 축용)
+// 억/만 단위 축약 (차트 축용). 영어면 B/M/K
 export const shortWon = (v) => {
   const a = Math.abs(v);
+  if (getLocale().language === "en") {
+    const trim = (x) => x.toFixed(1).replace(/\.0$/, "");
+    if (a >= 1e9) return trim(v / 1e9) + "B";
+    if (a >= 1e6) return trim(v / 1e6) + "M";
+    if (a >= 1e3) return Math.round(v / 1e3) + "K";
+    return String(v);
+  }
   if (a >= 1e8) return (v / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, "") + "억";
   if (a >= 1e4) return Math.round(v / 1e4).toLocaleString("ko-KR") + "만";
   return String(v);
@@ -97,8 +113,26 @@ export function addMonths(m, n) {
   const idx = y * 12 + (mo - 1) + n;
   return `${String(Math.floor(idx / 12)).padStart(4, "0")}-${String(idx % 12 + 1).padStart(2, "0")}`;
 }
-export const monthLabel = (m) => m ? `${m.slice(0, 4)}년 ${Number(m.slice(5, 7))}월` : "";
-export const parseMoney = (s) => String(s ?? "").replace(/[,원\s]/g, "");
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// 월(YYYY-MM) 표시: iso 2026-10 · dot 2026.10 · ko 2026년 10월 · en Oct 2026
+export const monthLabel = (m) => {
+  if (!m) return "";
+  const y = m.slice(0, 4), mm = m.slice(5, 7), f = getLocale().dateFormat;
+  if (f === "iso") return `${y}-${mm}`;
+  if (f === "dot") return `${y}.${mm}`;
+  if (f === "en") return `${MONTHS_EN[Number(mm) - 1]} ${y}`;
+  return `${y}년 ${Number(mm)}월`;
+};
+// 날짜(YYYY-MM-DD) 표시: iso 2026-10-21 · dot 2026.10.21 · ko 2026년 10월 21일 · en Oct 21, 2026
+export const dateLabel = (d) => {
+  if (!d) return "";
+  const y = d.slice(0, 4), mm = d.slice(5, 7), dd = d.slice(8, 10), f = getLocale().dateFormat;
+  if (f === "iso") return `${y}-${mm}-${dd}`;
+  if (f === "dot") return `${y}.${mm}.${dd}`;
+  if (f === "en") return `${MONTHS_EN[Number(mm) - 1]} ${Number(dd)}, ${y}`;
+  return `${y}년 ${Number(mm)}월 ${Number(dd)}일`;
+};
+export const parseMoney = (s) => String(s ?? "").replace(/KRW|[,원₩\s]/gi, "");
 export const fmtMoneyInput = (s) => {
   const raw = parseMoney(s);
   if (raw === "" || raw === "-") return raw;

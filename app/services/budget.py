@@ -120,12 +120,12 @@ def _check_category(conn, cid, kind: str | None = None) -> int:
     try:
         cid = int(cid)
     except (TypeError, ValueError):
-        raise AppError("항목을 선택하세요.") from None
+        raise AppError.of("category.select") from None
     r = conn.execute("SELECT kind FROM categories WHERE id=?", (cid,)).fetchone()
     if not r:
-        raise AppError("항목이 존재하지 않습니다.")
+        raise AppError.of("budget.category_missing")
     if kind and r["kind"] != kind:
-        raise AppError("소득 항목이 아닙니다." if kind == "income" else "지출 항목이 아닙니다.")
+        raise AppError.of("budget.not_income_category" if kind == "income" else "budget.not_expense_category")
     return cid
 
 
@@ -162,18 +162,18 @@ def move_plan(conn, month: str, from_category_id, to_category_id, amount) -> dic
     to_id = _check_category(conn, to_category_id, "expense")
     from_id = _check_category(conn, from_category_id, "expense") if from_category_id not in (None, "", 0) else None
     if from_id == to_id:
-        raise AppError("같은 항목으로는 옮길 수 없습니다.")
+        raise AppError.of("budget.move_same")
     amount = parse_amount(amount, "옮길 금액", allow_zero=False)
     if not from_id:
         free = get_budget(conn, month)["unallocated"]
         if amount > free:
-            raise AppError(f"옮길 금액이 미배분 금액({max(free, 0):,}원)보다 큽니다.")
+            raise AppError.of("budget.move_over_unallocated", amount=max(free, 0))
     with conn:
         if from_id:
             avail = conn.execute("SELECT IFNULL(SUM(amount),0) FROM records WHERE kind='plan' AND month=? AND category_id=?",
                                  (month, from_id)).fetchone()[0]
             if amount > avail:
-                raise AppError(f"옮길 금액이 보내는 항목의 계획({avail:,}원)보다 큽니다.")
+                raise AppError.of("budget.move_over_plan", amount=avail)
             conn.execute("INSERT INTO records (kind, category_id, amount, month, memo, tag) VALUES ('plan', ?, ?, ?, ?, 'move')",
                          (from_id, -amount, month, "계획 옮기기(보냄)"))
         conn.execute("INSERT INTO records (kind, category_id, amount, month, memo, tag) VALUES ('plan', ?, ?, ?, ?, 'move')",
@@ -192,14 +192,14 @@ def settle(conn, month: str, target_category_id=None) -> dict:
         if target_category_id in (None, "", 0):
             target_category_id = _settle_target(conn, month)
             if target_category_id is None:
-                raise AppError("남은 돈을 보낼 항목을 고르세요.")
+                raise AppError.of("budget.settle_select_target")
         target = _check_category(conn, target_category_id, "expense")
         conn.execute("DELETE FROM records WHERE tag='settle' AND month=?", (month,))
         b = get_budget(conn, month)
         if b["income_total"] <= 0:
-            raise AppError("이 달 예산으로 잡힌 소득이 없습니다.")
+            raise AppError.of("budget.settle_no_income")
         if b["leftover"] < 0:
-            raise AppError(f"소득보다 {-b['leftover']:,}원 더 지출했습니다. 부족분을 소득으로 기록(예: 저축에서 인출)한 뒤 정산하세요.")
+            raise AppError.of("budget.settle_overspent", amount=-b["leftover"])
         env = {e["category_id"]: e for e in b["envelopes"]}
         env.setdefault(target, {"plan": 0, "spent": 0})
         for cid, e in env.items():
@@ -261,13 +261,13 @@ def copy_month(conn, src: str, dst: str, items: bool = True, amounts: bool = Tru
     """
     src, dst = parse_month(src), parse_month(dst)
     if not items and not amounts:
-        raise AppError("불러올 것을 하나 이상 고르세요.")
+        raise AppError.of("budget.copy_nothing_selected")
     plan = _plan_to_copy(conn, src) if amounts else {}
     inc = _income_to_copy(conn, src) if items else []
     if not amounts:
         inc = [i for i in inc if i["item"]]  # 이름 없는 세부항목은 금액 없이 불러올 의미가 없다
     if not plan and not inc:
-        raise AppError(f"{src}에 불러올 내용이 없습니다.")
+        raise AppError.of("budget.copy_empty", month=src)
     have = {(r["category_id"], r["item"] or "") for r in conn.execute(
         "SELECT category_id, item FROM records WHERE kind='income' AND budget_month=?", (dst,))}
     added = 0

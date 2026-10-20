@@ -40,28 +40,28 @@ def list_categories(conn: sqlite3.Connection, include_inactive: bool = True, kin
 def get_category(conn, cid: int) -> dict:
     r = conn.execute("SELECT * FROM categories WHERE id = ?", (cid,)).fetchone()
     if not r:
-        raise AppError("항목을 찾을 수 없습니다.")
+        raise AppError.of("category.not_found")
     return dict(r)
 
 
 def _validate(conn, data: dict, cid: int | None = None) -> dict:
     name = clean_text(data.get("name"), 50)
     if not name:
-        raise AppError("항목 이름을 입력하세요.")
+        raise AppError.of("category.name_required")
     kind = data.get("kind") or "expense"
     if kind not in KINDS:
-        raise AppError("항목 종류는 소득(income) 또는 지출(expense)이어야 합니다.")
+        raise AppError.of("category.invalid_kind")
     if cid is not None and get_category(conn, cid)["kind"] != kind:
         wrong = ("income",) if kind == "expense" else ("plan", "expense")
         marks = ",".join("?" * len(wrong))
         if conn.execute(f"SELECT 1 FROM records WHERE category_id=? AND kind IN ({marks})", (cid, *wrong)).fetchone():
-            raise AppError("기록이 있는 항목은 소득/지출 종류를 바꿀 수 없습니다.")
+            raise AppError.of("category.kind_locked")
     color = clean_text(data.get("color"), 7) or None
     if color and not COLOR_RE.match(color):
-        raise AppError("색상은 #RRGGBB 형식이어야 합니다.")
+        raise AppError.of("category.invalid_color")
     if conn.execute("SELECT 1 FROM categories WHERE kind=? AND parent_id IS NULL AND name=? AND id<>?",
                     (kind, name, cid or -1)).fetchone():
-        raise AppError(f"{KINDS[kind]} 항목에 '{name}'이(가) 이미 있습니다.")
+        raise AppError.of(f"category.duplicate_{kind}", name=name)
     return dict(name=name, kind=kind, color=color, icon=clean_text(data.get("icon"), 8) or None,
                 memo=clean_text(data.get("memo"), 200),
                 is_active=1, sort_order=int(data.get("sort_order") or 0))  # 비활성화 기능은 없앴다(v6). 항목은 삭제만 한다.
@@ -108,7 +108,7 @@ def delete_category(conn, cid: int, with_records: bool = False) -> dict:
     get_category(conn, cid)
     n = conn.execute("SELECT COUNT(*) FROM records WHERE category_id = ?", (cid,)).fetchone()[0]
     if n and not with_records:
-        raise AppError(f"이 항목에는 기록 {n}건이 있습니다. 기록과 함께 삭제하려면 다시 확인하세요.")
+        raise AppError.of("category.has_records", count=n)
     with conn:
         conn.execute("DELETE FROM records WHERE category_id = ?", (cid,))
         conn.execute("DELETE FROM categories WHERE id = ?", (cid,))
@@ -120,7 +120,7 @@ def bulk_delete(conn, ids: list) -> dict:
     try:
         ids = [int(i) for i in ids]
     except (TypeError, ValueError):
-        raise AppError("삭제할 항목 목록이 올바르지 않습니다.") from None
+        raise AppError.of("category.delete_invalid_ids") from None
     deleted = records_deleted = 0
     for cid in ids:
         if conn.execute("SELECT 1 FROM categories WHERE id=?", (cid,)).fetchone():
