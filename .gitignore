@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.db
+*.db-wal
+*.db-shm
+
+# Claude 관련 컨텍스트(로컬 전용): 에이전트·명령·스킬, 프로젝트 지침, 개발 루프 문서
+.claude/
+CLAUDE.md
+.dev/
