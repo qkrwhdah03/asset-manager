@@ -3,30 +3,22 @@ import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from . import i18n
+from . import messages
 
 
 class AppError(ValueError):
-    """사용자에게 그대로 보여줄 수 있는 검증 오류.
-
-    코드가 있으면(AppError.of) 현재 언어로 다시 렌더할 수 있다. str(exc) 는 항상 한국어 문장이다.
-    """
+    """사용자에게 그대로 보여줄 수 있는 검증 오류. str(exc) 는 한국어 문장이다."""
 
     def __init__(self, message: str = "", *, code: str | None = None, params: dict | None = None):
         self.code = code
         self.params = dict(params or {})
         if code is not None and not message:
-            message = i18n.tr(code, i18n.DEFAULT_LANGUAGE, **self.params)
+            message = messages.text(code, **self.params)
         super().__init__(message)
 
     @classmethod
     def of(cls, code: str, **params) -> "AppError":
-        return cls(i18n.tr(code, i18n.DEFAULT_LANGUAGE, **params), code=code, params=params)
-
-    def message(self, lang: str) -> str:
-        if self.code is not None:
-            return i18n.tr(self.code, lang, **self.params)
-        return str(self)
+        return cls(messages.text(code, **params), code=code, params=params)
 
 
 MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")

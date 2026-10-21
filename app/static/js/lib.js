@@ -1,8 +1,6 @@
 // 공통 유틸리티: API 호출, 포맷, 토스트, 모달, 차트, 월 선택기
 import { html, render, useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "/vendor/preact-htm.module.js";
 export { html, render, useState, useEffect, useRef, useCallback, useMemo, createContext, useContext };
-import { t, setLocale, getLocale } from "./i18n.js";
-export { t, setLocale, getLocale };
 
 // ───────── API ─────────
 export class ApiError extends Error {}
@@ -41,14 +39,14 @@ export async function api(path, { method = "GET", body, raw, params } = {}) {
   try {
     res = await fetch(url, { method, headers, body: payload });
   } catch (e) {
-    throw new ApiError(t("common.api_unreachable"));
+    throw new ApiError("서버와 통신할 수 없습니다. 프로그램이 실행 중인지 확인하세요.");
   }
   const ct = res.headers.get("content-type") || "";
   const data = ct.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
     let msg = typeof data === "object" ? data.detail : data;
     if (Array.isArray(msg)) msg = msg.map(d => d.msg).join(", ");
-    throw new ApiError(msg || t("common.request_failed", { status: res.status }));
+    throw new ApiError(msg || `요청 실패 (${res.status})`);
   }
   if (method !== "GET" && !path.startsWith("/open-folder")) notifyDataChange();
   return data;
@@ -71,38 +69,43 @@ export function useApi(path, params, deps = []) {
   return { ...state, reload: () => setTick(t => t + 1) };
 }
 
+// ───────── 표시 설정 ─────────
+// 날짜 표기·금액 단위. 진실 원천은 서버 설정 DB 다(브라우저 저장소에 두지 않는다). 앱이 렌더 전에 setDisplay 를 부른다.
+const DATE_FORMATS = ["iso", "dot", "ko", "en"];
+const CURRENCIES = ["won", "symbol", "code"];
+let display = { dateFormat: "ko", currency: "won" };
+export function setDisplay(settings = {}) {
+  display = {
+    dateFormat: DATE_FORMATS.includes(settings.date_format) ? settings.date_format : "ko",
+    currency: CURRENCIES.includes(settings.currency_display) ? settings.currency_display : "won",
+  };
+}
+export const getDisplay = () => ({ ...display });
+
 // ───────── 포맷 ─────────
-// 저장 값(금액=원 정수, 날짜=ISO)은 그대로 두고 표시만 현재 설정(getLocale)에 맞춘다.
-const nf = new Intl.NumberFormat("ko-KR");   // 금액 숫자 그룹은 언어와 무관하게 쉼표
-const numLocale = () => (getLocale().language === "en" ? "en-US" : "ko-KR");
+// 저장 값(금액=원 정수, 날짜=ISO)은 그대로 두고 표시만 현재 설정(getDisplay)에 맞춘다.
+const nf = new Intl.NumberFormat("ko-KR");
 export const won = (n, { sign = false, unit = true } = {}) => {
   if (n === null || n === undefined || n === "") return "–";
   const v = Math.round(Number(n)) + 0;
   const s = nf.format(Math.abs(v));
   const pre = v < 0 ? "-" : (sign && v > 0 ? "+" : "");
   if (!unit) return pre + s;
-  const c = getLocale().currency;
+  const c = display.currency;
   if (c === "symbol") return pre + "₩" + s;
   if (c === "code") return pre + "KRW " + s;
-  return pre + s + "원";   // i18n-ok
+  return pre + s + "원";
 };
 export const num = (n, d = 2) => (n === null || n === undefined || n === "") ? "–"
-  : Number(n).toLocaleString(numLocale(), { minimumFractionDigits: d, maximumFractionDigits: d });
-export const qty = (s) => s === null || s === undefined ? "–" : Number(s).toLocaleString(numLocale(), { maximumFractionDigits: 6 });
+  : Number(n).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
+export const qty = (s) => s === null || s === undefined ? "–" : Number(s).toLocaleString("ko-KR", { maximumFractionDigits: 6 });
 export const pct = (n, sign = false) => (n === null || n === undefined) ? "–" : (sign && n > 0 ? "+" : "") + Number(n).toFixed(1) + "%";
 export const cls = (n, invert = false) => (n === null || n === undefined || n === 0) ? "" : ((n > 0) !== invert ? "pos" : "neg");
-// 억/만 단위 축약 (차트 축용). 영어면 B/M/K
+// 억/만 단위 축약 (차트 축용)
 export const shortWon = (v) => {
   const a = Math.abs(v);
-  if (getLocale().language === "en") {
-    const trim = (x) => x.toFixed(1).replace(/\.0$/, "");
-    if (a >= 1e9) return trim(v / 1e9) + "B";
-    if (a >= 1e6) return trim(v / 1e6) + "M";
-    if (a >= 1e3) return Math.round(v / 1e3) + "K";
-    return String(v);
-  }
-  if (a >= 1e8) return (v / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, "") + "억";   // i18n-ok
-  if (a >= 1e4) return Math.round(v / 1e4).toLocaleString("ko-KR") + "만";   // i18n-ok
+  if (a >= 1e8) return (v / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, "") + "억";
+  if (a >= 1e4) return Math.round(v / 1e4).toLocaleString("ko-KR") + "만";
   return String(v);
 };
 
@@ -117,32 +120,31 @@ const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep"
 // 월(YYYY-MM) 표시: iso 2026-10 · dot 2026.10 · ko 2026년 10월 · en Oct 2026
 export const monthLabel = (m) => {
   if (!m) return "";
-  const y = m.slice(0, 4), mm = m.slice(5, 7), f = getLocale().dateFormat;
+  const y = m.slice(0, 4), mm = m.slice(5, 7), f = display.dateFormat;
   if (f === "iso") return `${y}-${mm}`;
   if (f === "dot") return `${y}.${mm}`;
   if (f === "en") return `${MONTHS_EN[Number(mm) - 1]} ${y}`;
-  return `${y}년 ${Number(mm)}월`;   // i18n-ok
+  return `${y}년 ${Number(mm)}월`;
 };
 // 날짜(YYYY-MM-DD) 표시: iso 2026-10-21 · dot 2026.10.21 · ko 2026년 10월 21일 · en Oct 21, 2026
 export const dateLabel = (d) => {
   if (!d) return "";
-  const y = d.slice(0, 4), mm = d.slice(5, 7), dd = d.slice(8, 10), f = getLocale().dateFormat;
+  const y = d.slice(0, 4), mm = d.slice(5, 7), dd = d.slice(8, 10), f = display.dateFormat;
   if (f === "iso") return `${y}-${mm}-${dd}`;
   if (f === "dot") return `${y}.${mm}.${dd}`;
   if (f === "en") return `${MONTHS_EN[Number(mm) - 1]} ${Number(dd)}, ${y}`;
-  return `${y}년 ${Number(mm)}월 ${Number(dd)}일`;   // i18n-ok
+  return `${y}년 ${Number(mm)}월 ${Number(dd)}일`;
 };
-// 차트 축용 짧은 월(YYYY-MM): en Oct · ko 10월. iso/dot 은 언어를 따른다.
+// 차트 축용 짧은 월(YYYY-MM): en Oct · 그 밖(iso/dot/ko) 10월
 export const monthShort = (m) => {
   if (!m) return "";
-  const mm = Number(String(m).slice(5, 7)), { dateFormat: f, language } = getLocale();
-  const en = f === "en" || ((f === "iso" || f === "dot") && language === "en");
-  return en ? MONTHS_EN[mm - 1] : `${mm}월`;   // i18n-ok
+  const mm = Number(String(m).slice(5, 7));
+  return display.dateFormat === "en" ? MONTHS_EN[mm - 1] : `${mm}월`;
 };
 // 연도 표시: ko 2026년 · 그 밖(iso/dot/en) 2026
 export const yearLabel = (y) => {
   if (y === null || y === undefined || y === "") return "";
-  return getLocale().dateFormat === "ko" ? `${y}년` : String(y);   // i18n-ok
+  return display.dateFormat === "ko" ? `${y}년` : String(y);
 };
 // 날짜·시각(YYYY-MM-DDTHH:MM[:SS]) 표시: 날짜는 dateLabel, 시각은 HH:MM
 export const dateTimeLabel = (s) => {
@@ -150,7 +152,7 @@ export const dateTimeLabel = (s) => {
   const str = String(s), time = str.slice(11, 16);
   return time ? `${dateLabel(str.slice(0, 10))} ${time}` : dateLabel(str.slice(0, 10));
 };
-export const parseMoney = (s) => String(s ?? "").replace(/KRW|[,원₩\s]/gi, "");   // i18n-ok
+export const parseMoney = (s) => String(s ?? "").replace(/KRW|[,원₩\s]/gi, "");
 export const fmtMoneyInput = (s) => {
   const raw = parseMoney(s);
   if (raw === "" || raw === "-") return raw;
@@ -183,7 +185,7 @@ export function Modal({ title, onClose, children, footer, wide }) {
   }, [onClose]);
   return html`<div class="modal-back" onMouseDown=${(e) => e.target === e.currentTarget && onClose()}>
     <div class="modal ${wide ? "wide" : ""}" role="dialog">
-      <div class="modal-head"><h3>${title}</h3><button class="btn link" onClick=${onClose} title=${t("common.close")}>✕</button></div>
+      <div class="modal-head"><h3>${title}</h3><button class="btn link" onClick=${onClose} title="닫기">✕</button></div>
       <div class="modal-body">${children}</div>
       ${footer && html`<div class="modal-foot">${footer}</div>`}
     </div></div>`;
@@ -202,10 +204,10 @@ export function MoneyInput({ value, onInput, placeholder = "0", autofocus, onKey
 
 export function MonthPicker({ value, onChange }) {
   return html`<div class="month-picker">
-    <button class="btn" onClick=${() => onChange(addMonths(value, -1))} title=${t("common.prev_month")}>◀</button>
+    <button class="btn" onClick=${() => onChange(addMonths(value, -1))} title="이전 달">◀</button>
     <input type="month" value=${value} onChange=${(e) => e.target.value && onChange(e.target.value)} />
-    <button class="btn" onClick=${() => onChange(addMonths(value, 1))} title=${t("common.next_month")}>▶</button>
-    <button class="btn" onClick=${() => onChange(thisMonth())}>${t("common.this_month")}</button>
+    <button class="btn" onClick=${() => onChange(addMonths(value, 1))} title="다음 달">▶</button>
+    <button class="btn" onClick=${() => onChange(thisMonth())}>이번 달</button>
   </div>`;
 }
 
@@ -218,9 +220,9 @@ export function Empty({ title, children }) {
   return html`<div class="empty"><b>${title}</b>${children}</div>`;
 }
 
-export function Loading() { return html`<div class="empty">${t("common.loading")}</div>`; }
+export function Loading() { return html`<div class="empty">불러오는 중…</div>`; }
 export function ErrorBox({ error, onRetry }) {
-  return html`<div class="notice err">${error} ${onRetry && html`<button class="btn sm" onClick=${onRetry}>${t("common.retry")}</button>`}</div>`;
+  return html`<div class="notice err">${error} ${onRetry && html`<button class="btn sm" onClick=${onRetry}>다시 시도</button>`}</div>`;
 }
 
 // ───────── 차트 ─────────
@@ -254,7 +256,7 @@ export function ChartView({ config, className = "chart-box", height }) {
     chart.current = new Chart(ref.current, config);
     return () => { chart.current?.destroy(); chart.current = null; };
   }, [JSON.stringify(config, (k, v) => typeof v === "function" ? String(v) : v)]);
-  if (!window.Chart) return html`<div class="notice warn">${t("common.chart_failed")}</div>`;
+  if (!window.Chart) return html`<div class="notice warn">차트 라이브러리를 불러오지 못했습니다.</div>`;
   return html`<div class=${className} style=${height ? `height:${height}px` : ""}><canvas ref=${ref}></canvas></div>`;
 }
 
@@ -276,7 +278,7 @@ export async function exportFile(path, params = {}) {
   if (window.pywebview) {
     try {
       const r = await api(path, { params: { ...params, save: true } });
-      toast(t("common.saved_to", { path: r.path }), "ok");
+      toast(`저장했습니다:\n${r.path}`, "ok");
       await api("/open-folder", { method: "POST", body: { which: "exports" } });
     } catch (e) { toastErr(e); }
     return;

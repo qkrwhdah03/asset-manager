@@ -3,12 +3,12 @@
 import {
   html, useState, useEffect, useMemo, useRef, api, useApi, useApp, won, pct, monthLabel, dateLabel, thisMonth, today, addMonths,
   parseMoney, fmtMoneyInput, MoneyInput, MonthPicker, Modal, Empty, Loading, ErrorBox, toast, toastErr,
-  setParams, confirmBox, useDataChange, t,
+  setParams, confirmBox, useDataChange,
 } from "../lib.js";
 import { MoveDialog } from "./move.js";
 
-// 기본 정산 대상(저축·투자 항목) 추정. 한국어·영어 기본 항목 이름 모두에 맞춘다.
-const SAVINGS_HINT = /저축|투자|saving|invest/i;   // i18n-ok
+// 기본 정산 대상(저축·투자 항목) 추정.
+const SAVINGS_HINT = /저축|투자/;
 
 export function CashflowPage({ params }) {
   const { categories } = useApp();
@@ -28,14 +28,14 @@ export function CashflowPage({ params }) {
   };
 
   const expenseCats = categories.filter(c => c.kind === "expense");
-  const savingsId = useMemo(() => (expenseCats.find(c => c.is_active && SAVINGS_HINT.test(c.name)) || {}).id, [categories]);
-  const ctx = { month, d, categories, expenseCats, savingsId, save, openMove: setMove };
+  const stashId = useMemo(() => (expenseCats.find(c => c.is_active && SAVINGS_HINT.test(c.name)) || {}).id, [categories]);
+  const ctx = { month, d, categories, expenseCats, stashId, save, openMove: setMove };
 
   return html`<div class="page">
     <div class="page-head">
-      <h1>${t("cashflow.title")}</h1>
+      <h1>월 예산</h1>
       <${MonthPicker} value=${month} onChange=${(m) => setParams({ month: m })} />
-      ${d && html`<button class="btn sm" onClick=${() => setCopying(true)}>${t("cashflow.copy_prev")}</button>`}
+      ${d && html`<button class="btn sm" onClick=${() => setCopying(true)}>지난달 불러오기</button>`}
       <div class="spacer"></div>
       ${d && html`<${StepBar} d=${d} />`}
     </div>
@@ -50,7 +50,7 @@ export function CashflowPage({ params }) {
         <div class="budget-side">
           <${AllocationCard} ctx=${ctx} />
           <${SettleCard} ctx=${ctx} />
-          <div class="muted small" style="padding:4px 2px;line-height:1.6">${t("cashflow.autosave_hint")}</div>
+          <div class="muted small" style="padding:4px 2px;line-height:1.6">칸을 벗어나면 자동 저장되고, Enter를 누르면 아래 칸으로 이동합니다.</div>
         </div>
       </div>`}
     ${copying && html`<${CopyMonthModal} month=${month} onClose=${() => setCopying(false)} onDone=${() => setCopying(false)} />`}
@@ -65,10 +65,10 @@ function StepBar({ d }) {
   const s3 = d.over_total > 0 ? "warn" : d.spent_total > 0 ? "active" : "todo";
   const s4 = d.settled && d.balanced ? "done" : d.settled ? "warn" : d.is_past ? "warn" : "todo";
   return html`<div class="steps">
-    <span class="step ${s1}">${t("cashflow.step.income")} <b>${won(d.income_total)}</b></span>
-    <span class="step ${s2}">${t("cashflow.step.alloc")} <b>${d.unallocated === 0 ? t("cashflow.step.done") : d.unallocated > 0 ? t("cashflow.amount_left", { amount: won(d.unallocated) }) : t("cashflow.amount_over", { amount: won(-d.unallocated) })}</b></span>
-    <span class="step ${s3}">${t("cashflow.step.spend")} <b>${d.plan_total ? pct(d.spent_total / d.plan_total * 100) : "–"}</b></span>
-    <span class="step ${s4}">${t("cashflow.step.settle")} <b>${d.settled ? (d.balanced ? t("cashflow.step.done") : t("cashflow.step.again")) : d.is_past ? t("cashflow.step.needed") : t("cashflow.step.month_end")}</b></span>
+    <span class="step ${s1}">① 소득 <b>${won(d.income_total)}</b></span>
+    <span class="step ${s2}">② 배분 <b>${d.unallocated === 0 ? "완료" : d.unallocated > 0 ? `${won(d.unallocated)} 남음` : `${won(-d.unallocated)} 초과`}</b></span>
+    <span class="step ${s3}">③ 지출 <b>${d.plan_total ? pct(d.spent_total / d.plan_total * 100) : "–"}</b></span>
+    <span class="step ${s4}">④ 정산 <b>${d.settled ? (d.balanced ? "완료" : "다시 필요") : d.is_past ? "필요" : "월말"}</b></span>
   </div>`;
 }
 
@@ -82,7 +82,7 @@ function GridMoney({ value, col, onCommit, placeholder = "0", disabled }) {
   const commit = async () => {
     const raw = parseMoney(text);
     const n = raw === "" || raw === "-" ? 0 : Number(raw);
-    if (Number.isNaN(n)) { toast(t("cashflow.enter_number"), "err"); setText(fmt(value)); return; }
+    if (Number.isNaN(n)) { toast("숫자를 입력하세요.", "err"); setText(fmt(value)); return; }
     if (n !== (value || 0)) { const ok = await onCommit(n); if (!ok) setText(fmt(value)); }
   };
   return html`<input type="text" inputmode="numeric" class="cell amount" data-col=${col} value=${text} placeholder=${placeholder} disabled=${disabled}
@@ -139,10 +139,10 @@ function useSheet(ctx, kind) {
 
 function SelectionBar({ sh, onMove }) {
   if (!sh.sel.size) return null;
-  return html`<span class="selbar"><b>${t("cashflow.n_selected", { n: sh.sel.size })}</b>
-    ${onMove && html`<button class="btn sm" onClick=${onMove}>${t("cashflow.move_selected")}</button>`}
-    <button class="btn sm danger" onClick=${() => sh.removeIds([...sh.sel], t("cashflow.confirm_delete_selected", { n: sh.sel.size }))}>${t("cashflow.delete_selected")}</button>
-    <button class="btn sm" onClick=${sh.clearSel}>${t("cashflow.clear_selection")}</button></span>`;
+  return html`<span class="selbar"><b>${sh.sel.size}개 선택</b>
+    ${onMove && html`<button class="btn sm" onClick=${onMove}>선택 옮기기</button>`}
+    <button class="btn sm danger" onClick=${() => sh.removeIds([...sh.sel], `선택한 세부항목 ${sh.sel.size}개를 삭제할까요?`)}>선택 삭제</button>
+    <button class="btn sm" onClick=${sh.clearSel}>선택 해제</button></span>`;
 }
 
 // 처음 그려질 때 포커스를 받을 수 있는 텍스트 칸. Enter → 같은 줄의 다음 입력 칸으로.
@@ -151,7 +151,7 @@ function ItemName({ value, autofocus, onCommit, readOnly, hint }) {
   const [text, setText] = useState(value || "");
   useEffect(() => setText(value || ""), [value]);
   useEffect(() => { if (autofocus && ref.current) ref.current.focus(); }, [autofocus]);
-  return html`<input ref=${ref} type="text" class="cell" value=${text} placeholder=${hint || t("cashflow.item_name")} readOnly=${readOnly}
+  return html`<input ref=${ref} type="text" class="cell" value=${text} placeholder=${hint || "세부항목 이름"} readOnly=${readOnly}
     onInput=${(e) => setText(e.target.value)} onBlur=${() => text !== (value || "") && onCommit(text)}
     onKeyDown=${(e) => {
       if (e.key !== "Enter") return;
@@ -165,41 +165,40 @@ function ItemName({ value, autofocus, onCommit, readOnly, hint }) {
 function CatName({ c, sh, onAdd }) {
   const folded = sh.collapsed.has(c.category_id);
   return html`<td class="namecell grp">
-    <button class="fold-btn" onClick=${() => sh.toggleCollapse(c.category_id)} title=${folded ? t("cashflow.expand") : t("cashflow.collapse")}>${folded ? "▸" : "▾"}</button>
+    <button class="fold-btn" onClick=${() => sh.toggleCollapse(c.category_id)} title=${folded ? "펼치기" : "접기"}>${folded ? "▸" : "▾"}</button>
     <span class="dot" style=${c.color ? `background:${c.color}` : ""}></span><span class="nm" title=${c.memo || ""}>${c.name}</span>
     ${c.count > 0 && html`<span class="muted small"> ${c.count}</span>`}
-    ${c.is_active && html`<span class="row-tools"><button class="tool add" onClick=${onAdd} title=${t("cashflow.add_item_title")}>${t("cashflow.add_item")}</button></span>`}
+    ${c.is_active && html`<span class="row-tools"><button class="tool add" onClick=${onAdd} title="이 항목에 세부항목 추가">+ 세부항목</button></span>`}
   </td>`;
 }
 
 function ItemCells({ it, sh }) {
   const settle = it.tag === "settle";
   return html`<td class="namecell item">
-    <input type="checkbox" class="selbox ${sh.sel.size ? "on" : ""}" checked=${sh.sel.has(it.id)} onChange=${() => sh.toggleSel(it.id)} title=${t("cashflow.select")} />
-    ${settle ? html`<span class="muted">${it.item || t("cashflow.settle_item")} <span class="tag blue">${t("cashflow.settle_tag")}</span></span>`
+    <input type="checkbox" class="selbox ${sh.sel.size ? "on" : ""}" checked=${sh.sel.has(it.id)} onChange=${() => sh.toggleSel(it.id)} title="선택" />
+    ${settle ? html`<span class="muted">${it.item || "월말 정산"} <span class="tag blue">정산</span></span>`
       : html`<${ItemName} value=${it.item} hint=${it.memo} autofocus=${sh.focusId === it.id} onCommit=${(v) => sh.save(it.id, { item: v })} />`}
   </td>`;
 }
 
 function DelCell({ it, sh, colspan = 1 }) {
-  return html`<td class="actions" colspan=${colspan}>${it.tag !== "settle" && html`<button class="btn link del-x" title=${t("cashflow.delete")}
-    onClick=${() => sh.removeIds([it.id], t("cashflow.confirm_delete_item", { name: it.item || t("cashflow.unnamed"), amount: won(it.amount) }))}>✕</button>`}</td>`;
+  return html`<td class="actions" colspan=${colspan}>${it.tag !== "settle" && html`<button class="btn link del-x" title="삭제"
+    onClick=${() => sh.removeIds([it.id], `'${it.item || "이름 없는 항목"}' (${won(it.amount)})을(를) 삭제할까요?`)}>✕</button>`}</td>`;
 }
 
 // ───────── ①③ 소득·지출 표 (항목 + 세부항목) ─────────
 // 소득과 지출은 같은 표를 쓴다. 다른 점(어느 목록·합계·날짜 이름)만 SHEETS 에 둔다.
-// 문구는 키로 두고 렌더할 때 t() 로 꺼낸다(언어를 바꾸면 바로 바뀌도록).
 const SHEETS = {
   income: {
-    title: "cashflow.income.title", hint: "cashflow.income.hint", dateLabel: "cashflow.income.date", dateTitle: "cashflow.income.date_title",
-    groups: (d) => d.income_items, sum: (c) => c.total, emptyTitle: "cashflow.income.empty",
-    footer: (d) => html`<td>${t("cashflow.income.total")}</td><td class="num">${won(d.income_total)}</td>
-      <td colspan="2" class="small muted">${d.income_pending ? t("cashflow.income.pending_incl", { amount: won(d.income_pending) }) : ""}</td>`,
+    title: "① 소득", hint: "항목 줄의 [+ 세부항목]으로 받은 돈을 기록합니다.", dateLabel: "입금일", dateTitle: "입금일 (비우면 미입금)",
+    groups: (d) => d.income_items, sum: (c) => c.total, emptyTitle: "소득 항목이 없습니다",
+    footer: (d) => html`<td>이번 달 쓸 돈</td><td class="num">${won(d.income_total)}</td>
+      <td colspan="2" class="small muted">${d.income_pending ? `미입금 ${won(d.income_pending)} 포함` : ""}</td>`,
   },
   expense: {
-    title: "cashflow.expense.title", hint: "cashflow.expense.hint", dateLabel: "cashflow.expense.date", dateTitle: "cashflow.expense.date_title",
-    groups: (d) => d.envelopes, sum: (c) => c.spent, emptyTitle: "cashflow.expense.empty",
-    footer: (d) => html`<td>${t("cashflow.expense.total")}</td><td class="num">${won(d.spent_total)}</td><td colspan="2"></td>`,
+    title: "③ 지출", hint: "항목 줄의 [+ 세부항목]으로 쓴 돈을 기록합니다.", dateLabel: "지출일", dateTitle: "지출일",
+    groups: (d) => d.envelopes, sum: (c) => c.spent, emptyTitle: "지출 항목이 없습니다",
+    footer: (d) => html`<td>이번 달 지출</td><td class="num">${won(d.spent_total)}</td><td colspan="2"></td>`,
   },
 };
 
@@ -223,20 +222,20 @@ function ItemSheet({ ctx, kind }) {
         <${ItemCells} it=${it} sh=${sh} />
         <td class="num">${settle ? won(it.amount) : html`<${GridMoney} col=${kind} value=${it.amount} onCommit=${(n) => sh.save(it.id, { amount: n })} />`}</td>
         <td class="nowrap">${settle ? html`<span class="muted small">${dateLabel(it.txn_date)}</span>` : html`
-          <input type="date" class="cell" value=${it.txn_date || ""} title=${t(cfg.dateTitle)} onChange=${(e) => sh.save(it.id, { txn_date: e.target.value || null })} />
-          ${kind === "income" && it.amount > 0 && !it.txn_date && html`<span class="tag amber">${t("cashflow.not_paid")}</span>`}`}</td>
+          <input type="date" class="cell" value=${it.txn_date || ""} title=${cfg.dateTitle} onChange=${(e) => sh.save(it.id, { txn_date: e.target.value || null })} />
+          ${kind === "income" && it.amount > 0 && !it.txn_date && html`<span class="tag amber">미입금</span>`}`}</td>
         <${DelCell} it=${it} sh=${sh} />
       </tr>`);
     }
   }
   return html`<div class="panel">
-    <div class="panel-head"><h2>${t(cfg.title)}</h2><span class="hint">${t(cfg.hint)}</span><div class="spacer"></div>
+    <div class="panel-head"><h2>${cfg.title}</h2><span class="hint">${cfg.hint}</span><div class="spacer"></div>
       <${SelectionBar} sh=${sh} onMove=${() => setMoveIds([...sh.sel])} /></div>
     ${moveIds && html`<${MoveDialog} kind=${kind} ids=${moveIds} fromId=${fromIdOf(moveIds)} onClose=${() => setMoveIds(null)} onMoved=${() => sh.clearSel()} />`}
     <div class="panel-body flush"><table class="t sheet">
-      <thead><tr><th>${t("cashflow.col.category_item")}</th><th class="num" style="width:150px">${t("cashflow.col.amount")}</th><th style="width:190px">${t(cfg.dateLabel)}</th><th style="width:1%"></th></tr></thead>
+      <thead><tr><th>항목 / 세부항목</th><th class="num" style="width:150px">금액</th><th style="width:190px">${cfg.dateLabel}</th><th style="width:1%"></th></tr></thead>
       <tbody>${rows}
-        ${groups.length === 0 && html`<tr><td colspan="4"><${Empty} title=${t(cfg.emptyTitle)}>${t("cashflow.empty_hint")}<//></td></tr>`}
+        ${groups.length === 0 && html`<tr><td colspan="4"><${Empty} title=${cfg.emptyTitle}>설정 → 항목에서 항목을 추가하세요.<//></td></tr>`}
       </tbody>
       <tfoot><tr>${cfg.footer(d)}</tr></tfoot>
     </table></div>
@@ -254,36 +253,36 @@ function ExpenseTable({ ctx }) {
     const used = e.plan > 0 ? e.spent / e.plan * 100 : null;
     const fill = used !== null ? Math.min(100, Math.max(0, used)) : (e.spent > 0 ? 100 : 0);
     const marker = daysLeft > 0 && e.plan > 0;
-    const left = used === null ? t("cashflow.plan.no_plan") : t("cashflow.plan.used", { pct: Math.round(used) });
-    const right = e.remaining < 0 ? html`<span class="neg">${t("cashflow.amount_over", { amount: won(-e.remaining) })}</span>`
-      : daysLeft > 0 && e.remaining > 0 ? t("cashflow.plan.per_day", { amount: won(Math.floor(e.remaining / daysLeft)) }) : "";
-    const tip = used === null ? "" : t("cashflow.plan.tip_used", { pct: Math.round(used) })
-      + (marker ? t("cashflow.plan.tip_today", { pct: Math.round(d.pace * 100) }) : "")
-      + (daysLeft > 0 ? t("cashflow.plan.tip_days_left", { n: daysLeft }) : "");
+    const left = used === null ? "계획 없음" : `${Math.round(used)}% 사용`;
+    const right = e.remaining < 0 ? html`<span class="neg">${won(-e.remaining)} 초과</span>`
+      : daysLeft > 0 && e.remaining > 0 ? `하루 ${won(Math.floor(e.remaining / daysLeft))}` : "";
+    const tip = used === null ? "" : `계획의 ${Math.round(used)}% 사용`
+      + (marker ? ` · 오늘은 이달의 ${Math.round(d.pace * 100)}%` : "")
+      + (daysLeft > 0 ? ` · 남은 ${daysLeft}일` : "");
     return html`<div class="pwrap" title=${tip}>
       <div class="pbar"><i class=${e.status} style="width:${fill}%"></i>${marker && html`<b style="left:${d.pace * 100}%"></b>`}</div>
-      <div class="pcap"><span class=${e.status === "fast" ? "warn" : ""}>${left}${e.status === "fast" ? t("cashflow.plan.fast") : ""}</span><span>${right}</span></div>
+      <div class="pcap"><span class=${e.status === "fast" ? "warn" : ""}>${left}${e.status === "fast" ? " · 빠름" : ""}</span><span>${right}</span></div>
     </div>`;
   };
   const rows = d.envelopes.map(e => html`<tr key=${"c" + e.category_id} class="${e.status === "over" || e.status === "unplanned" ? "over" : ""} ${e.is_active ? "" : "inactive"}">
       <td class="namecell"><span class="dot" style=${e.color ? `background:${e.color}` : ""}></span><span class="nm" title=${e.memo || ""}>${e.name}</span></td>
       <td class="num"><${GridMoney} col="plan" value=${e.plan} onCommit=${(n) => ctx.save("/budget/plan", { category_id: e.category_id, amount: n })}
-        disabled=${!e.is_active && !e.plan} />${e.plan !== e.plan_base && html`<span class="adj" title=${t("cashflow.plan.adjusted", { amount: won(e.plan_base) })}>*</span>`}</td>
-      <td class="num ${e.spent ? "" : "muted"}">${e.spent ? won(e.spent) : "–"}${e.items.some(i => i.tag === "settle") && html`<span class="adj" title=${t("cashflow.plan.settle_included")}>${t("cashflow.plan.settle_mark")}</span>`}</td>
+        disabled=${!e.is_active && !e.plan} />${e.plan !== e.plan_base && html`<span class="adj" title="원래 계획 ${won(e.plan_base)} (옮기기·정산으로 조정됨)">*</span>`}</td>
+      <td class="num ${e.spent ? "" : "muted"}">${e.spent ? won(e.spent) : "–"}${e.items.some(i => i.tag === "settle") && html`<span class="adj" title="월말 정산 금액 포함">정</span>`}</td>
       <td class="num ${e.remaining < 0 ? "neg" : e.status === "empty" || (e.remaining === 0 && e.plan > 0) ? "muted" : ""}"><b>${e.status === "empty" ? "–" : won(e.remaining)}</b></td>
       <td>${bar(e)}</td>
-      <td class="actions">${e.remaining < 0 && html`<button class="btn sm" onClick=${() => ctx.openMove(e)} title=${t("cashflow.plan.fill_title")}>${t("cashflow.plan.fill")}</button>`}</td>
+      <td class="actions">${e.remaining < 0 && html`<button class="btn sm" onClick=${() => ctx.openMove(e)} title="다른 항목의 남은 계획을 옮겨 메우기">메우기</button>`}</td>
     </tr>`);
   return html`<div class="panel">
-    <div class="panel-head"><h2>${t("cashflow.plan.title")}</h2>
-      <span class="hint">${t("cashflow.plan.hint")}</span></div>
+    <div class="panel-head"><h2>② 계획</h2>
+      <span class="hint">항목마다 계획을 입력합니다. 실제는 ③ 지출의 합계이고, 막대의 세로선은 오늘입니다.</span></div>
     <div class="panel-body flush"><table class="t sheet">
-      <thead><tr><th>${t("cashflow.col.category")}</th><th class="num" style="width:130px">${t("cashflow.col.plan")}</th><th class="num" style="width:130px">${t("cashflow.col.actual")}</th>
-        <th class="num" style="width:110px">${t("cashflow.col.left")}</th><th style="min-width:120px">${t("cashflow.col.progress")}</th><th style="width:1%"></th></tr></thead>
+      <thead><tr><th>항목</th><th class="num" style="width:130px">계획</th><th class="num" style="width:130px">실제</th>
+        <th class="num" style="width:110px">남음</th><th style="min-width:120px">진행</th><th style="width:1%"></th></tr></thead>
       <tbody>${rows}
-        ${d.envelopes.length === 0 && html`<tr><td colspan="6"><${Empty} title=${t("cashflow.expense.empty")}>${t("cashflow.plan.empty_hint")}<//></td></tr>`}
+        ${d.envelopes.length === 0 && html`<tr><td colspan="6"><${Empty} title="지출 항목이 없습니다">설정 → 항목에서 지출 항목을 추가하세요.<//></td></tr>`}
       </tbody>
-      <tfoot><tr><td>${t("cashflow.total")}</td><td class="num">${won(d.plan_total)}</td><td class="num">${won(d.spent_total)}</td>
+      <tfoot><tr><td>합계</td><td class="num">${won(d.plan_total)}</td><td class="num">${won(d.spent_total)}</td>
         <td class="num ${d.plan_total - d.spent_total < 0 ? "neg" : ""}">${won(d.plan_total - d.spent_total)}</td><td colspan="2"></td></tr></tfoot>
     </table></div>
   </div>`;
@@ -295,25 +294,25 @@ function AllocationCard({ ctx }) {
   const [target, setTarget] = useState(null);
   const u = d.unallocated;
   const options = d.envelopes.filter(e => e.is_active);
-  const tgt = target || ctx.savingsId || options[0]?.category_id;
+  const tgt = target || ctx.stashId || options[0]?.category_id;
   const tone = d.income_total === 0 ? "" : u === 0 ? "ok" : u > 0 ? "warn" : "bad";
   async function fill() {
     const e = d.envelopes.find(x => x.category_id === tgt);
     await ctx.save("/budget/plan", { category_id: tgt, amount: (e ? e.plan : 0) + u });
   }
   return html`<div class="panel">
-    <div class="panel-head"><h2>${t("cashflow.alloc.title")}</h2><span class="hint">${t("cashflow.alloc.hint")}</span></div>
+    <div class="panel-head"><h2>② 배분</h2><span class="hint">쓸 돈 − 계획</span></div>
     <div class="panel-body">
       <div class="bignum ${tone}">
-        <div class="small">${u === 0 && d.income_total ? t("cashflow.alloc.all_done") : u >= 0 ? t("cashflow.alloc.unallocated") : t("cashflow.alloc.over")}</div>
+        <div class="small">${u === 0 && d.income_total ? "모두 배분됨" : u >= 0 ? "아직 배분 안 된 돈" : "소득보다 많이 계획함"}</div>
         <div class="v">${u === 0 && d.income_total ? `✓ ${won(0)}` : won(Math.abs(u))}</div>
       </div>
-      <div class="muted small" style="margin-top:6px">${t("cashflow.alloc.formula", { income: won(d.income_total), plan: won(d.plan_total) })}</div>
+      <div class="muted small" style="margin-top:6px">${won(d.income_total)} − 계획 ${won(d.plan_total)}</div>
       ${u > 0 && options.length > 0 && html`<div class="row" style="margin-top:8px;flex-wrap:nowrap">
         <select value=${tgt} onChange=${(e) => setTarget(Number(e.target.value))} style="flex:1;min-width:0">
           ${options.map(e => html`<option value=${e.category_id}>${e.full_name}</option>`)}</select>
-        <button class="btn sm" onClick=${fill}>${t("cashflow.alloc.put_all")}</button></div>`}
-      ${u < 0 && html`<div class="small" style="margin-top:6px;color:var(--neg)">${t("cashflow.alloc.reduce")}</div>`}
+        <button class="btn sm" onClick=${fill}>에 모두 넣기</button></div>`}
+      ${u < 0 && html`<div class="small" style="margin-top:6px;color:var(--neg)">계획 금액을 줄여 0원으로 맞추세요.</div>`}
     </div>
   </div>`;
 }
@@ -322,44 +321,44 @@ function SettleCard({ ctx }) {
   const { month, d } = ctx;
   const [target, setTarget] = useState(null);
   const options = ctx.expenseCats.filter(c => c.is_active);
-  const tgt = target || ctx.savingsId || options[0]?.id;
+  const tgt = target || ctx.stashId || options[0]?.id;
   async function settle() {
     const name = options.find(c => c.id === tgt)?.name;
-    const note = d.income_pending > 0 ? t("cashflow.settle.pending_note", { amount: won(d.income_pending) }) : "";
-    if (!confirmBox(t("cashflow.settle.confirm", { amount: won(d.leftover), name, note }))) return;
-    try { await api("/budget/settle", { method: "POST", body: { month, category_id: tgt } }); toast(t("cashflow.settle.done"), "ok"); }
+    const note = d.income_pending > 0 ? `\n\n주의: 아직 입금되지 않은 소득 ${won(d.income_pending)}이 포함되어 있습니다.` : "";
+    if (!confirmBox(`남은 ${won(d.leftover)}을 '${name}'(으)로 보내고, 각 항목의 계획을 실제 지출에 맞춥니다.\n원래 계획은 기록으로 보존됩니다. 정산할까요?${note}`)) return;
+    try { await api("/budget/settle", { method: "POST", body: { month, category_id: tgt } }); toast("정산했습니다. 소득 = 지출", "ok"); }
     catch (e) { toastErr(e); }
   }
   async function resettle() {
-    const name = options.find(c => c.id === d.settle_target)?.name || t("cashflow.settle.default_target");
-    if (!confirmBox(t("cashflow.settle.confirm_again", { name }))) return;
-    try { await api("/budget/settle", { method: "POST", body: { month, category_id: d.settle_target } }); toast(t("cashflow.settle.done_again"), "ok"); }
+    const name = options.find(c => c.id === d.settle_target)?.name || "정산 항목";
+    if (!confirmBox(`지난 정산을 지우고 지금 기록으로 다시 정산합니다.\n남은 돈은 '${name}'(으)로 보냅니다. 진행할까요?`)) return;
+    try { await api("/budget/settle", { method: "POST", body: { month, category_id: d.settle_target } }); toast("다시 정산했습니다. 소득 = 지출", "ok"); }
     catch (e) { toastErr(e); }
   }
   async function unsettle() {
-    if (!confirmBox(t("cashflow.settle.confirm_cancel"))) return;
+    if (!confirmBox("정산을 취소하고 정산 전 계획·지출로 되돌릴까요?")) return;
     try { await api("/budget/settle", { method: "DELETE", params: { month } }); } catch (e) { toastErr(e); }
   }
   const tone = d.leftover < 0 ? "bad" : d.settled && d.balanced ? "ok" : "";
   return html`<div class="panel">
-    <div class="panel-head"><h2>${t("cashflow.settle.title")}</h2><span class="hint">${t("cashflow.settle.hint")}</span></div>
+    <div class="panel-head"><h2>④ 정산</h2><span class="hint">쓸 돈 − 지출 = 0</span></div>
     <div class="panel-body">
       <div class="bignum ${tone}">
-        <div class="small">${d.settled && d.balanced ? t("cashflow.settle.complete") : d.leftover < 0 ? t("cashflow.settle.overspent") : t("cashflow.settle.unspent")}</div>
+        <div class="small">${d.settled && d.balanced ? "정산 완료 · 소득 = 지출" : d.leftover < 0 ? "소득보다 더 쓴 돈" : "아직 쓰지 않은 돈"}</div>
         <div class="v">${d.settled && d.balanced ? `✓ ${won(0)}` : won(Math.abs(d.leftover))}</div>
       </div>
       ${d.settled ? html`
-        ${!d.balanced && html`<div class="small" style="color:var(--warn);margin-top:6px">${t("cashflow.settle.changed")}</div>`}
+        ${!d.balanced && html`<div class="small" style="color:var(--warn);margin-top:6px">정산 후 기록이 바뀌었습니다. 다시 정산하면 지금 기록에 맞춰집니다.</div>`}
         <div class="row" style="margin-top:8px">
-          ${!d.balanced && html`<button class="btn sm primary" onClick=${resettle} disabled=${d.leftover_before_settle < 0}>${t("cashflow.settle.again")}</button>`}
-          <button class="btn sm" onClick=${unsettle}>${t("cashflow.settle.cancel")}</button></div>
-        ${!d.balanced && d.leftover_before_settle < 0 && html`<div class="small" style="color:var(--neg);margin-top:6px">${t("cashflow.settle.cannot_again")}</div>`}`
-      : d.leftover < 0 ? html`<div class="small" style="color:var(--neg);margin-top:6px">${t("cashflow.settle.need_income")}</div>`
-      : html`<div class="small muted" style="margin-top:6px">${d.is_past ? t("cashflow.settle.past") : t("cashflow.settle.future")}</div>
+          ${!d.balanced && html`<button class="btn sm primary" onClick=${resettle} disabled=${d.leftover_before_settle < 0}>다시 정산</button>`}
+          <button class="btn sm" onClick=${unsettle}>정산 취소</button></div>
+        ${!d.balanced && d.leftover_before_settle < 0 && html`<div class="small" style="color:var(--neg);margin-top:6px">소득보다 더 써서 다시 정산할 수 없습니다. 부족분을 소득으로 기록하세요.</div>`}`
+      : d.leftover < 0 ? html`<div class="small" style="color:var(--neg);margin-top:6px">부족분을 소득(예: 저축에서 인출)으로 기록해야 정산할 수 있습니다.</div>`
+      : html`<div class="small muted" style="margin-top:6px">${d.is_past ? "지난 달입니다. 남은 돈을 정리하세요." : "월말에 남은 돈을 한 항목으로 보내 마감합니다."}</div>
         <div class="row" style="margin-top:8px;flex-wrap:nowrap">
           <select value=${tgt} onChange=${(e) => setTarget(Number(e.target.value))} style="flex:1;min-width:0">
             ${options.map(c => html`<option value=${c.id}>${c.full_name}</option>`)}</select>
-          <button class="btn sm ${d.is_past ? "primary" : ""}" onClick=${settle} disabled=${d.income_total === 0}>${t("cashflow.settle.button")}</button></div>`}
+          <button class="btn sm ${d.is_past ? "primary" : ""}" onClick=${settle} disabled=${d.income_total === 0}>정산</button></div>`}
     </div>
   </div>`;
 }
@@ -377,29 +376,29 @@ function CopyMonthModal({ month, onClose, onDone }) {
   const nothing = !v || (!(items && nIncome) && !nPlan);
 
   async function apply() {
-    if (amounts && v.plan_overwrite && !confirmBox(t("cashflow.copy.confirm_overwrite", { n: v.plan_overwrite }))) return;
+    if (amounts && v.plan_overwrite && !confirmBox(`이번 달에 이미 계획이 있는 항목 ${v.plan_overwrite}개는 지난달 금액으로 바뀝니다. 계속할까요?`)) return;
     setBusy(true);
     try {
       const r = await api("/budget/copy-month", { method: "POST", body: { from, to: month, items, amounts } });
       const c = r.copied, parts = [];
-      if (c.income_items) parts.push(t("cashflow.copy.income_items", { n: c.income_items }));
-      if (c.plan_items) parts.push(t("cashflow.copy.plan_items", { n: c.plan_items }));
-      toast(parts.length ? t("cashflow.copy.done", { parts: parts.join(", ") }) : t("cashflow.copy.nothing_new"), "ok");
+      if (c.income_items) parts.push(`소득 세부항목 ${c.income_items}개`);
+      if (c.plan_items) parts.push(`지출 계획 ${c.plan_items}개 항목`);
+      toast(parts.length ? `${parts.join(", ")}을(를) 불러왔습니다.` : "새로 불러올 내용이 없었습니다.", "ok");
       onDone();
     } catch (e) { toastErr(e); } finally { setBusy(false); }
   }
 
-  return html`<${Modal} title=${t("cashflow.copy.title", { month: monthLabel(from) })} onClose=${onClose}
-    footer=${html`<button class="btn" onClick=${onClose}>${t("common.cancel")}</button>
-      <button class="btn primary" onClick=${apply} disabled=${busy || nothing || (!items && !amounts)}>${t("cashflow.copy.button")}</button>`}>
+  return html`<${Modal} title="${monthLabel(from)} 불러오기" onClose=${onClose}
+    footer=${html`<button class="btn" onClick=${onClose}>취소</button>
+      <button class="btn primary" onClick=${apply} disabled=${busy || nothing || (!items && !amounts)}>불러오기</button>`}>
     ${p.loading && !v ? html`<${Loading} />` : p.error ? html`<${ErrorBox} error=${p.error} />` : html`
       <label class="checkline"><input type="checkbox" class="selbox" checked=${items} onChange=${() => setItems(!items)} />
-        <b>${t("cashflow.copy.items")}</b><span class="muted small">${t("cashflow.copy.items_desc", { n: v.income_items })}</span></label>
+        <b>항목</b><span class="muted small">소득 세부항목 이름 ${v.income_items}개</span></label>
       <label class="checkline"><input type="checkbox" class="selbox" checked=${amounts} onChange=${() => setAmounts(!amounts)} />
-        <b>${t("cashflow.copy.amounts")}</b><span class="muted small">${items ? t("cashflow.copy.amounts_income", { amount: won(v.income_total) }) : ""}${t("cashflow.copy.amounts_plan", { n: v.plan_items, amount: won(v.plan_total) })}</span></label>
-      ${items && !amounts && nIncome > 0 && html`<p class="small muted">${t("cashflow.copy.zero_note")}</p>`}
-      ${amounts && v.plan_overwrite > 0 && html`<div class="notice warn" style="margin-top:10px">${t("cashflow.copy.overwrite_note", { n: v.plan_overwrite })}</div>`}
-      ${nothing && (items || amounts) && html`<p class="small muted">${t("cashflow.copy.nothing")}</p>`}`}
+        <b>금액</b><span class="muted small">${items ? `소득 ${won(v.income_total)} · ` : ""}지출 계획 ${v.plan_items}개 항목 ${won(v.plan_total)}</span></label>
+      ${items && !amounts && nIncome > 0 && html`<p class="small muted">세부항목은 0원으로 만들어지고, 지출 계획은 그대로 둡니다.</p>`}
+      ${amounts && v.plan_overwrite > 0 && html`<div class="notice warn" style="margin-top:10px">이번 달에 이미 계획이 있는 항목 ${v.plan_overwrite}개는 지난달 금액으로 바뀝니다.</div>`}
+      ${nothing && (items || amounts) && html`<p class="small muted">불러올 내용이 없습니다.</p>`}`}
   <//>`;
 }
 
@@ -409,23 +408,23 @@ function MoveModal({ ctx, target, onClose, onSaved }) {
   const [from, setFrom] = useState(d.unallocated > 0 ? "" : (sources[0]?.category_id ?? ""));
   const [amount, setAmount] = useState(fmtMoneyInput(String(Math.max(0, -target.remaining))));
   async function save() {
-    if (from === "" && Number(parseMoney(amount)) > d.unallocated) return toast(t("cashflow.move.over_unallocated"), "err");
+    if (from === "" && Number(parseMoney(amount)) > d.unallocated) return toast("미배분 금액보다 많이 가져올 수 없습니다.", "err");
     try {
       await api("/budget/move", { method: "POST", body: { month, from_category_id: from || null, to_category_id: target.category_id, amount: parseMoney(amount) } });
-      toast(t("cashflow.move.done"), "ok"); onSaved();
+      toast("계획을 옮겼습니다.", "ok"); onSaved();
     } catch (e) { toastErr(e); }
   }
-  return html`<${Modal} title=${t("cashflow.move.title", { name: target.name })} onClose=${onClose}
-    footer=${html`<button class="btn" onClick=${onClose}>${t("common.cancel")}</button><button class="btn primary" onClick=${save}>${t("cashflow.move.button")}</button>`}>
-    <p class="small muted" style="margin-top:0">${t("cashflow.move.desc", { name: target.name })}</p>
+  return html`<${Modal} title="'${target.name}' 초과분 메우기" onClose=${onClose}
+    footer=${html`<button class="btn" onClick=${onClose}>취소</button><button class="btn primary" onClick=${save}>옮기기</button>`}>
+    <p class="small muted" style="margin-top:0">다른 항목의 남은 계획을 '${target.name}'(으)로 옮깁니다. 계획 합계(= 소득)는 그대로입니다.</p>
     <div class="form-grid">
-      <label>${t("cashflow.move.from")}</label>
+      <label>가져올 항목</label>
       <select value=${from} onChange=${(e) => setFrom(e.target.value ? Number(e.target.value) : "")}>
-        ${d.unallocated > 0 && html`<option value="">${t("cashflow.move.unallocated_opt", { amount: won(d.unallocated) })}</option>`}
-        ${sources.map(e => html`<option value=${e.category_id}>${t("cashflow.move.source_opt", { name: e.name, amount: won(e.remaining) })}</option>`)}
+        ${d.unallocated > 0 && html`<option value="">미배분 (${won(d.unallocated)})</option>`}
+        ${sources.map(e => html`<option value=${e.category_id}>${e.name} (남음 ${won(e.remaining)})</option>`)}
       </select>
-      <label>${t("cashflow.col.amount")}</label><${MoneyInput} value=${amount} onInput=${setAmount} />
+      <label>금액</label><${MoneyInput} value=${amount} onInput=${setAmount} />
     </div>
-    ${sources.length === 0 && d.unallocated <= 0 && html`<div class="notice warn" style="margin-top:10px">${t("cashflow.move.no_source")}</div>`}
+    ${sources.length === 0 && d.unallocated <= 0 && html`<div class="notice warn" style="margin-top:10px">남은 계획이 있는 항목이 없습니다. 소득을 추가하거나 다른 항목의 계획을 줄이세요.</div>`}
   <//>`;
 }

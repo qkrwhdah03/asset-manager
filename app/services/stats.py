@@ -10,12 +10,11 @@
 """
 import sqlite3
 
-from .. import i18n
 from ..util import AppError, add_months, month_range, parse_month
-from . import settings
 from .records import month_expr
 
 BASES = ("budget", "cash")
+BASIS_LABEL = {"budget": "예산 월 기준", "cash": "입금·결제일 기준"}
 
 
 def _check_basis(basis: str) -> str:
@@ -171,7 +170,7 @@ def month_summary(conn, month: str, basis: str = "budget") -> dict:
     prev = trend(conn, add_months(month, -1), add_months(month, -1), basis)[0]
     pva = plan_vs_actual(conn, month, basis)
     return {
-        "month": month, "basis": basis, "basis_label": i18n.label(f"stats.basis.{basis}", settings.language(conn)),
+        "month": month, "basis": basis, "basis_label": BASIS_LABEL[basis],
         **{k: t[k] for k in ("income", "expense", "plan", "savings", "savings_rate")},
         "prev_income": prev["income"], "prev_expense": prev["expense"], "prev_savings": prev["savings"],
         "plan_diff": pva["total_diff"] if pva["total_plan"] else None,

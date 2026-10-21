@@ -126,17 +126,16 @@ def reset(conn: sqlite3.Connection, mode: str) -> dict:
             n = conn.execute("DELETE FROM records").rowcount
         return {"reset": mode, "deleted_records": n, "safety_backup": safety["name"]}
     import tempfile
-    from . import settings  # 표시 설정(언어·날짜·금액 단위)은 전체 초기화 뒤에도 유지한다
+    from . import settings  # 표시 설정(날짜·금액 단위)은 전체 초기화 뒤에도 유지한다
     display = settings.get_display(conn)
     with tempfile.TemporaryDirectory() as tmp:
-        # 새 DB 를 현재 언어로 만들어(기본 항목 포함) 현재 DB 에 그대로 덮어쓴다
-        fresh = db.init_db(Path(tmp) / "fresh.db", lang=display["language"])
+        fresh = db.init_db(Path(tmp) / "fresh.db")  # 새 DB 를 만들어(기본 항목 포함) 현재 DB 에 그대로 덮어쓴다
         try:
             fresh.backup(conn)
         finally:
             fresh.close()
     db.migrate(conn)
-    keep = {k: v for k, v in display.items() if k != "language" and v != settings.DEFAULTS[k]}
+    keep = {k: v for k, v in display.items() if v != settings.DEFAULTS[k]}
     if keep:
         settings.set_many(conn, keep)
     return {"reset": mode, "safety_backup": safety["name"]}
