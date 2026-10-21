@@ -9,6 +9,8 @@ import { MoveDialog } from "./move.js";
 
 // 기본 정산 대상(저축·투자 항목) 추정.
 const SAVINGS_HINT = /저축|투자/;
+// 응답(최신 예산)을 이미 화면에 반영한 칸 저장 요청 표시. 이것만으로 이뤄진 변경 신호에는 예산을 다시 부르지 않는다.
+const SELF_APPLIED = "budget-applied";
 
 export function CashflowPage({ params }) {
   const { categories } = useApp();
@@ -20,10 +22,11 @@ export function CashflowPage({ params }) {
 
   const load = () => api("/budget", { params: { month } }).then((x) => { setD(x); setError(null); }).catch((e) => setError(e.message));
   useEffect(() => { setD(null); load(); }, [month]);
-  useDataChange(() => load());   // 다른 곳에서 바뀐 내용(항목 추가·삭제·이름·색 등)도 바로 반영
+  // 다른 곳에서 바뀐 내용(항목 추가·삭제·이름·색 등)도 바로 반영
+  useDataChange((tags) => { if (!tags.length || !tags.every(t => t === SELF_APPLIED)) load(); });
   // 칸 저장: 서버가 돌려준 최신 예산으로 바로 갱신
   const save = async (path, body) => {
-    try { setD(await api(path, { method: "PUT", body: { month, ...body } })); return true; }
+    try { setD(await api(path, { method: "PUT", body: { month, ...body }, tag: SELF_APPLIED })); return true; }
     catch (e) { toastErr(e); return false; }
   };
 

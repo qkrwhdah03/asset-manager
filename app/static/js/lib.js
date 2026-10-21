@@ -7,23 +7,30 @@ export class ApiError extends Error {}
 
 // 데이터가 바뀌었다는 앱 전체 신호. 저장·추가·삭제 요청이 성공하면 보내고,
 // 화면·표·항목 목록은 이 신호를 받으면 바로 다시 불러온다(짧은 시간에 여러 번 와도 한 번으로 합침).
+// 합쳐진 요청들의 tag 목록을 함께 넘긴다(tag 없는 요청은 null). 응답을 이미 반영한 화면은 이를 보고 다시 부르기를 건너뛸 수 있다.
 const CHANGE_EVENT = "datachange";
 let changeTimer = null;
-function notifyDataChange() {
+let changeTags = [];
+function notifyDataChange(tag) {
   clearTimeout(changeTimer);
-  changeTimer = setTimeout(() => window.dispatchEvent(new Event(CHANGE_EVENT)), 30);
+  changeTags.push(tag ?? null);
+  changeTimer = setTimeout(() => {
+    const tags = changeTags;
+    changeTags = [];
+    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: tags }));
+  }, 30);
 }
 export function useDataChange(callback) {
   const ref = useRef(callback);
   ref.current = callback;
   useEffect(() => {
-    const h = () => ref.current();
+    const h = (e) => ref.current((e && e.detail) || []);
     window.addEventListener(CHANGE_EVENT, h);
     return () => window.removeEventListener(CHANGE_EVENT, h);
   }, []);
 }
 
-export async function api(path, { method = "GET", body, raw, params } = {}) {
+export async function api(path, { method = "GET", body, raw, params, tag } = {}) {
   let url = "/api" + path;
   if (params) {
     const q = new URLSearchParams();
@@ -48,7 +55,7 @@ export async function api(path, { method = "GET", body, raw, params } = {}) {
     if (Array.isArray(msg)) msg = msg.map(d => d.msg).join(", ");
     throw new ApiError(msg || `요청 실패 (${res.status})`);
   }
-  if (method !== "GET" && !path.startsWith("/open-folder")) notifyDataChange();
+  if (method !== "GET" && !path.startsWith("/open-folder")) notifyDataChange(tag);
   return data;
 }
 
