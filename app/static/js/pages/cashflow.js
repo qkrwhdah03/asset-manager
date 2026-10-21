@@ -31,7 +31,7 @@ export function CashflowPage({ params }) {
   };
 
   const expenseCats = categories.filter(c => c.kind === "expense");
-  const stashId = useMemo(() => (expenseCats.find(c => c.is_active && SAVINGS_HINT.test(c.name)) || {}).id, [categories]);
+  const stashId = useMemo(() => (expenseCats.find(c => SAVINGS_HINT.test(c.name)) || {}).id, [categories]);
   const ctx = { month, d, categories, expenseCats, stashId, save, openMove: setMove };
 
   return html`<div class="page">
@@ -171,7 +171,7 @@ function CatName({ c, sh, onAdd }) {
     <button class="fold-btn" onClick=${() => sh.toggleCollapse(c.category_id)} title=${folded ? "펼치기" : "접기"}>${folded ? "▸" : "▾"}</button>
     <span class="dot" style=${c.color ? `background:${c.color}` : ""}></span><span class="nm" title=${c.memo || ""}>${c.name}</span>
     ${c.count > 0 && html`<span class="muted small"> ${c.count}</span>`}
-    ${c.is_active && html`<span class="row-tools"><button class="tool add" onClick=${onAdd} title="이 항목에 세부항목 추가">+ 세부항목</button></span>`}
+    ${html`<span class="row-tools"><button class="tool add" onClick=${onAdd} title="이 항목에 세부항목 추가">+ 세부항목</button></span>`}
   </td>`;
 }
 
@@ -215,7 +215,7 @@ function ItemSheet({ ctx, kind }) {
   const fromIdOf = (ids) => { const cats = new Set(groups.filter(c => c.items.some(i => ids.includes(i.id))).map(c => c.category_id)); return cats.size === 1 ? [...cats][0] : null; };
   const rows = [];
   for (const c of groups) {
-    rows.push(html`<tr key=${"c" + c.category_id} class="grouprow ${c.is_active ? "" : "inactive"}">
+    rows.push(html`<tr key=${"c" + c.category_id} class="grouprow">
       <${CatName} c=${c} sh=${sh} onAdd=${() => sh.addItem(c.category_id)} />
       <td class="num"><b>${c.count ? won(cfg.sum(c)) : html`<span class="muted">–</span>`}</b></td><td></td><td></td></tr>`);
     if (sh.collapsed.has(c.category_id)) continue;
@@ -267,10 +267,9 @@ function ExpenseTable({ ctx }) {
       <div class="pcap"><span class=${e.status === "fast" ? "warn" : ""}>${left}${e.status === "fast" ? " · 빠름" : ""}</span><span>${right}</span></div>
     </div>`;
   };
-  const rows = d.envelopes.map(e => html`<tr key=${"c" + e.category_id} class="${e.status === "over" || e.status === "unplanned" ? "over" : ""} ${e.is_active ? "" : "inactive"}">
+  const rows = d.envelopes.map(e => html`<tr key=${"c" + e.category_id} class="${e.status === "over" || e.status === "unplanned" ? "over" : ""}">
       <td class="namecell"><span class="dot" style=${e.color ? `background:${e.color}` : ""}></span><span class="nm" title=${e.memo || ""}>${e.name}</span></td>
-      <td class="num"><${GridMoney} col="plan" value=${e.plan} onCommit=${(n) => ctx.save("/budget/plan", { category_id: e.category_id, amount: n })}
-        disabled=${!e.is_active && !e.plan} />${e.plan !== e.plan_base && html`<span class="adj" title="원래 계획 ${won(e.plan_base)} (옮기기·정산으로 조정됨)">*</span>`}</td>
+      <td class="num"><${GridMoney} col="plan" value=${e.plan} onCommit=${(n) => ctx.save("/budget/plan", { category_id: e.category_id, amount: n })} />${e.plan !== e.plan_base && html`<span class="adj" title="원래 계획 ${won(e.plan_base)} (옮기기·정산으로 조정됨)">*</span>`}</td>
       <td class="num ${e.spent ? "" : "muted"}">${e.spent ? won(e.spent) : "–"}${e.items.some(i => i.tag === "settle") && html`<span class="adj" title="월말 정산 금액 포함">정</span>`}</td>
       <td class="num ${e.remaining < 0 ? "neg" : e.status === "empty" || (e.remaining === 0 && e.plan > 0) ? "muted" : ""}"><b>${e.status === "empty" ? "–" : won(e.remaining)}</b></td>
       <td>${bar(e)}</td>
@@ -296,7 +295,7 @@ function AllocationCard({ ctx }) {
   const { month, d } = ctx;
   const [target, setTarget] = useState(null);
   const u = d.unallocated;
-  const options = d.envelopes.filter(e => e.is_active);
+  const options = d.envelopes;
   const tgt = target || ctx.stashId || options[0]?.category_id;
   const tone = d.income_total === 0 ? "" : u === 0 ? "ok" : u > 0 ? "warn" : "bad";
   async function fill() {
@@ -323,7 +322,7 @@ function AllocationCard({ ctx }) {
 function SettleCard({ ctx }) {
   const { month, d } = ctx;
   const [target, setTarget] = useState(null);
-  const options = ctx.expenseCats.filter(c => c.is_active);
+  const options = ctx.expenseCats;
   const tgt = target || ctx.stashId || options[0]?.id;
   async function settle() {
     const name = options.find(c => c.id === tgt)?.name;

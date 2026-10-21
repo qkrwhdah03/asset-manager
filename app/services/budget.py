@@ -49,7 +49,7 @@ def get_budget(conn, month: str) -> dict:
     income_items = []
     for c in cats:
         items = inc.get(c["id"], [])
-        if not items and not (c["kind"] == "income" and c["is_active"]):
+        if not items and c["kind"] != "income":
             continue
         income_items.append({
             "category_id": c["id"], "name": c["name"], "full_name": c["name"], "color": c["color"], "memo": c["memo"],
@@ -75,7 +75,7 @@ def get_budget(conn, month: str) -> dict:
     for c in cats:
         cid = c["id"]
         items = exp.get(cid, [])
-        if cid not in plan and not items and not (c["kind"] == "expense" and c["is_active"]):
+        if cid not in plan and not items and c["kind"] != "expense":
             continue
         p, s = plan.get(cid, 0), sum(i["amount"] for i in items)
         rate = s / p if p > 0 else None
@@ -225,10 +225,10 @@ def unsettle(conn, month: str) -> dict:
 
 
 def _plan_to_copy(conn, src: str) -> dict:
-    """src 달 계획 중 다음 달로 불러올 금액: 옮기기 반영, 정산 조정 제외, 0보다 큰 활성 지출 항목."""
+    """src 달 계획 중 다음 달로 불러올 금액: 옮기기 반영, 정산 조정 제외, 0보다 큰 지출 항목."""
     return {r["category_id"]: r["amt"] for r in conn.execute(
         """SELECT r.category_id, SUM(r.amount) AS amt FROM records r JOIN categories c ON c.id = r.category_id
-           WHERE r.kind='plan' AND r.month=? AND IFNULL(r.tag,'') <> 'settle' AND c.is_active=1 AND c.kind='expense'
+           WHERE r.kind='plan' AND r.month=? AND IFNULL(r.tag,'') <> 'settle' AND c.kind='expense'
            GROUP BY r.category_id HAVING SUM(r.amount) > 0""", (src,))}
 
 
@@ -236,7 +236,7 @@ def _income_to_copy(conn, src: str) -> list[dict]:
     """src 달 예산으로 잡힌 소득 세부항목(사용자 기록)."""
     return rows(conn.execute(
         """SELECT r.category_id, r.item, r.amount FROM records r JOIN categories c ON c.id = r.category_id
-           WHERE r.kind='income' AND r.budget_month=? AND r.tag IS NULL AND c.is_active=1 AND c.kind='income'
+           WHERE r.kind='income' AND r.budget_month=? AND r.tag IS NULL AND c.kind='income'
            ORDER BY c.sort_order, r.id""", (src,)))
 
 
