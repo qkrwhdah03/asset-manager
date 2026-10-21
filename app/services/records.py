@@ -6,7 +6,6 @@ from ..util import AppError, clean_text, month_of, parse_amount, parse_date, par
 from .categories import RECORD_KIND_TO_CATEGORY
 
 KINDS = ("income", "plan", "expense")
-KIND_LABEL = {"income": "수입", "plan": "지출 계획", "expense": "실제 지출"}
 
 
 def validate_record(conn: sqlite3.Connection, data: dict, existing: dict | None = None) -> dict:
