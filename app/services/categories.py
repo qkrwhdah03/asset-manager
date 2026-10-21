@@ -59,7 +59,7 @@ def _validate(conn, data: dict, cid: int | None = None) -> dict:
     color = clean_text(data.get("color"), 7) or None
     if color and not COLOR_RE.match(color):
         raise AppError.of("category.invalid_color")
-    if conn.execute("SELECT 1 FROM categories WHERE kind=? AND parent_id IS NULL AND name=? AND id<>?",
+    if conn.execute("SELECT 1 FROM categories WHERE kind=? AND name=? AND id<>?",
                     (kind, name, cid or -1)).fetchone():
         raise AppError.of(f"category.duplicate_{kind}", name=name)
     return dict(name=name, kind=kind, color=color, icon=clean_text(data.get("icon"), 8) or None,

@@ -144,7 +144,7 @@ def _find_or_create_category(conn, label: str, ckind: str, create: bool, created
     name = label.strip()
     if not name:
         raise AppError.of("csv.category_empty")
-    r = conn.execute("SELECT id FROM categories WHERE kind=? AND parent_id IS NULL AND name=?", (ckind, name)).fetchone()
+    r = conn.execute("SELECT id FROM categories WHERE kind=? AND name=?", (ckind, name)).fetchone()
     if r:
         return r["id"]
     if not create:

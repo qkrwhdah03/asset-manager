@@ -73,8 +73,7 @@ def plan_vs_actual(conn, month: str, basis: str = "budget") -> dict:
     if ids:
         q = ",".join("?" * len(ids))
         for r in conn.execute(
-            f"""SELECT c.id, c.name, c.color, c.sort_order, p.name AS parent_name, p.sort_order AS psort
-                FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.id IN ({q})""",
+            f"SELECT c.id, c.name, c.color, c.sort_order FROM categories c WHERE c.id IN ({q})",
             list(ids),
         ):
             cats[r["id"]] = dict(r)
@@ -94,12 +93,12 @@ def plan_vs_actual(conn, month: str, basis: str = "budget") -> dict:
         items.append({
             "category_id": cid,
             "category_name": c["name"],
-            "category_full_name": f"{c['parent_name']} > {c['name']}" if c["parent_name"] else c["name"],
+            "category_full_name": c["name"],
             "color": c["color"],
             "plan": plan, "actual": actual, "diff": diff,
             "rate": round(actual / plan * 100, 1) if plan > 0 else None,
             "status": status,
-            "_sort": (c["psort"] if c["psort"] is not None else c["sort_order"], c["sort_order"]),
+            "_sort": c["sort_order"],
         })
     items.sort(key=lambda x: x.pop("_sort"))
     total_plan = sum(plans.values())
@@ -137,13 +136,13 @@ def category_breakdown(conn, kind: str, start: str, end: str, basis: str = "budg
     out = []
     for d in data:
         c = conn.execute(
-            "SELECT c.name, c.color, p.name AS parent_name FROM categories c LEFT JOIN categories p ON p.id=c.parent_id WHERE c.id=?",
+            "SELECT c.name, c.color FROM categories c WHERE c.id=?",
             (d["gid"],),
         ).fetchone()
         out.append({
             "category_id": d["gid"],
             "category_name": c["name"],
-            "category_full_name": f"{c['parent_name']} > {c['name']}" if c["parent_name"] else c["name"],
+            "category_full_name": c["name"],
             "color": c["color"],
             "total": d["total"], "count": d["n"],
             "share": round(d["total"] / grand * 100, 1) if grand > 0 else None,

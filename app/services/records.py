@@ -57,10 +57,9 @@ def validate_record(conn: sqlite3.Connection, data: dict, existing: dict | None 
 
 def get_record(conn, rid: int) -> dict:
     r = conn.execute(
-        """SELECT r.*, c.name AS category_name, p.name AS parent_name, c.color AS category_color,
+        """SELECT r.*, c.name AS category_name, NULL AS parent_name, c.color AS category_color,
                   c.is_active AS category_active
-           FROM records r JOIN categories c ON c.id = r.category_id
-           LEFT JOIN categories p ON p.id = c.parent_id WHERE r.id = ?""",
+           FROM records r JOIN categories c ON c.id = r.category_id WHERE r.id = ?""",
         (rid,),
     ).fetchone()
     if not r:
@@ -69,7 +68,7 @@ def get_record(conn, rid: int) -> dict:
 
 
 def _decorate(r: dict) -> dict:
-    r["category_full_name"] = f"{r['parent_name']} > {r['category_name']}" if r.get("parent_name") else r["category_name"]
+    r["category_full_name"] = r["category_name"]  # 하위 분류(v4에서 없앤 parent_id)가 없으므로 이름 그대로
     return r
 
 
@@ -202,11 +201,10 @@ def list_records(conn, kind: str | None = None, month: str | None = None, basis:
         like = f"%{q.strip()}%"
         params += [like, like, like]
     sql = f"""
-        SELECT r.*, c.name AS category_name, p.name AS parent_name, c.color AS category_color,
+        SELECT r.*, c.name AS category_name, NULL AS parent_name, c.color AS category_color,
                c.is_active AS category_active, {mexpr} AS stat_month
         FROM records r JOIN categories c ON c.id = r.category_id
-        LEFT JOIN categories p ON p.id = c.parent_id
         {"WHERE " + " AND ".join(where) if where else ""}
-        ORDER BY r.month DESC, COALESCE(p.sort_order, c.sort_order), c.sort_order, r.id
+        ORDER BY r.month DESC, c.sort_order, r.id
     """
     return [_decorate(r) for r in rows(conn.execute(sql, params))]
