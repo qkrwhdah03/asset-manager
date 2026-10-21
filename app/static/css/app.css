@@ -195,7 +195,6 @@ table.sheet td.num { position: relative; }
 .namecell { white-space: nowrap; }
 .namecell .nm { cursor: default; }
 .namecell.grp .nm { font-weight: 700; }
-tr.grouprow td { background: #f6f8fb; }
 .row-tools { visibility: hidden; margin-left: 8px; }
 tr:hover .row-tools { visibility: visible; }
 .row-tools .tool { border: 1px solid transparent; background: none; color: var(--ink-3); cursor: pointer; padding: 0 5px; font-size: 12px; border-radius: 3px; }
