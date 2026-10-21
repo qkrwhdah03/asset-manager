@@ -4,6 +4,8 @@
 - MESSAGES : 오류 코드 -> {"ko": 템플릿, "en": 템플릿}. 템플릿은 str.format 자리표시자를 쓴다.
 - FIELD_LABELS : util.parse_* 등에 넘기는 한국어 필드 라벨 -> 영어 라벨. tr(..., "en") 에서 field 파라미터만 바꾼다.
 - DEFAULT_CATEGORY_NAMES / DEFAULT_ASSET_TYPE_NAMES : 새로 설치할 때 영어로 바꿀 기본 이름.
+- LABELS : 화면에 보이는 서버 문구(집계 기준 이름·파일 이름 등) -> {"ko": 템플릿, "en": 템플릿}.
+- SYSTEM_TEXTS : 시스템이 DB 에 넣는 한국어 기록 문구 -> 영어. 저장 값은 그대로 두고 보여 줄 때만 바꾼다.
 """
 
 LANGUAGES = ("ko", "en")
@@ -189,6 +191,8 @@ MESSAGES: dict[str, dict[str, str]] = {
                                "en": "Invalid value for '{key}'."},
 
     # ── 서버(server) ──
+    "http.forbidden": {"ko": "허용되지 않은 요청입니다.",
+                       "en": "This request is not allowed."},
     "server.unknown_folder": {"ko": "알 수 없는 폴더입니다.",
                               "en": "Unknown folder."},
     "db.foreign_key": {"ko": "다른 기록이 참조하고 있어 처리할 수 없습니다.",
@@ -199,6 +203,33 @@ MESSAGES: dict[str, dict[str, str]] = {
                      "en": "Data integrity error: {detail}"},
     "db.operational": {"ko": "데이터베이스 오류로 저장하지 못했습니다: {detail}",
                        "en": "Could not save because of a database error: {detail}"},
+}
+
+LABELS: dict[str, dict[str, str]] = {
+    # ── 통계 집계 기준 ──
+    "stats.basis.budget": {"ko": "예산 월 기준", "en": "Budget month basis"},
+    "stats.basis.cash": {"ko": "입금·결제일 기준", "en": "Paid/settle date basis"},
+    # ── 설정 ──
+    "settings.secret_set": {"ko": "설정됨", "en": "Set"},
+    # ── 앱 ──
+    "app.title": {"ko": "개인 자산 관리", "en": "Asset Manager"},
+    # ── CSV 파일 이름(날짜·확장자는 server.maybe_save 가 붙인다) ──
+    "export.records": {"ko": "수입지출기록", "en": "records"},
+    "export.categories": {"ko": "항목", "en": "categories"},
+    "export.template": {"ko": "양식_{name}", "en": "template_{name}"},
+    "export.asset_txns": {"ko": "자산변동", "en": "asset_txns"},
+    "export.prices": {"ko": "종목시세", "en": "prices"},
+    "export.indicator": {"ko": "지표_{id}", "en": "indicator_{id}"},
+}
+
+SYSTEM_TEXTS: dict[str, str] = {
+    "계획 옮기기(보냄)": "Plan moved (sent)",
+    "계획 옮기기(받음)": "Plan moved (received)",
+    "미배분에서 추가": "Added from unallocated",
+    "월말 정산(계획 조정)": "Month-end settlement (plan adjusted)",
+    "월말 정산(조정 없음)": "Month-end settlement (no adjustment)",
+    "월말 정산(남은 돈)": "Month-end settlement (leftover)",
+    "월말 정산": "Month-end settlement",
 }
 
 FIELD_LABELS: dict[str, str] = {
@@ -265,3 +296,17 @@ def tr(code: str, lang: str, **params) -> str:
     if lang == "en" and "field" in params:
         params = {**params, "field": FIELD_LABELS.get(params["field"], params["field"])}
     return templates.get(lang, templates[DEFAULT_LANGUAGE]).format(**params)
+
+
+def label(key: str, lang: str, **params) -> str:
+    """화면 표시용 서버 문구. 모르는 key 는 KeyError."""
+    templates = LABELS[key]
+    lang = normalize(lang)
+    return templates.get(lang, templates[DEFAULT_LANGUAGE]).format(**params)
+
+
+def system_text(text: str | None, lang: str) -> str | None:
+    """시스템이 저장한 한국어 기록 문구를 lang 으로 보여 준다. ko·모르는 글·빈 값은 그대로."""
+    if text and normalize(lang) == "en":
+        return SYSTEM_TEXTS.get(text, text)
+    return text

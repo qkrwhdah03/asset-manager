@@ -25,22 +25,14 @@ mimetypes.add_type("text/css", ".css")
 def create_app(db_file: Path | None = None) -> FastAPI:
     db_file = Path(db_file) if db_file else config.db_path()
     init_conn = db.init_db(db_file)
-    init_conn.close()
+    try:
+        # 시작 시점 언어로 고정한다(/api/docs 에만 보인다).
+        app_title = i18n.label("app.title", settings.language(init_conn))
+    finally:
+        init_conn.close()
 
-    app = FastAPI(title="개인 자산 관리", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app = FastAPI(title=app_title, version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
-
-    @app.middleware("http")
-    async def csrf_guard(request: Request, call_next):
-        # 변경 요청에는 커스텀 헤더를 요구한다 → 다른 웹사이트에서의 위조 요청(CSRF)을 브라우저가 차단.
-        if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/"):
-            if request.headers.get("x-requested-with") != "asset-manager":
-                return JSONResponse({"detail": "허용되지 않은 요청입니다.", "code": None}, status_code=403)
-        response = await call_next(request)
-        if not request.url.path.startswith("/api/"):
-            # 프로그램을 업데이트한 뒤 예전 화면 파일이 캐시에서 쓰이지 않도록 항상 다시 확인하게 한다.
-            response.headers["Cache-Control"] = "no-cache"
-        return response
 
     def current_language() -> str:
         # 언어의 단일 진실 원천은 설정 DB 다(요청 헤더는 보지 않는다). 읽지 못하면 한국어.
@@ -52,6 +44,19 @@ def create_app(db_file: Path | None = None) -> FastAPI:
                 conn.close()
         except Exception:
             return i18n.DEFAULT_LANGUAGE
+
+    @app.middleware("http")
+    async def csrf_guard(request: Request, call_next):
+        # 변경 요청에는 커스텀 헤더를 요구한다 → 다른 웹사이트에서의 위조 요청(CSRF)을 브라우저가 차단.
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/"):
+            if request.headers.get("x-requested-with") != "asset-manager":
+                return JSONResponse({"detail": i18n.tr("http.forbidden", current_language()), "code": "http.forbidden"},
+                                    status_code=403)
+        response = await call_next(request)
+        if not request.url.path.startswith("/api/"):
+            # 프로그램을 업데이트한 뒤 예전 화면 파일이 캐시에서 쓰이지 않도록 항상 다시 확인하게 한다.
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     def error_response(code: str | None, detail: str, status: int) -> JSONResponse:
         return JSONResponse({"detail": detail, "code": code}, status_code=status)
@@ -442,27 +447,27 @@ def create_app(db_file: Path | None = None) -> FastAPI:
     @app.get("/api/export/records")
     def export_records(kind: str | None = None, start: str | None = None, end: str | None = None,
                        save: bool = False, conn=C):
-        return maybe_save(csvio.export_records(conn, kind, start, end), "수입지출기록", save)
+        return maybe_save(csvio.export_records(conn, kind, start, end), i18n.label("export.records", settings.language(conn)), save)
 
     @app.get("/api/export/asset-txns")
     def export_txns(account_id: int | None = None, save: bool = False, conn=C):
-        return maybe_save(csvio.export_asset_txns(conn, account_id), "자산변동", save)
+        return maybe_save(csvio.export_asset_txns(conn, account_id), i18n.label("export.asset_txns", settings.language(conn)), save)
 
     @app.get("/api/export/prices")
     def export_prices(save: bool = False, conn=C):
-        return maybe_save(csvio.export_prices(conn), "종목시세", save)
+        return maybe_save(csvio.export_prices(conn), i18n.label("export.prices", settings.language(conn)), save)
 
     @app.get("/api/export/categories")
     def export_categories(save: bool = False, conn=C):
-        return maybe_save(csvio.export_categories(conn), "항목", save)
+        return maybe_save(csvio.export_categories(conn), i18n.label("export.categories", settings.language(conn)), save)
 
     @app.get("/api/export/indicator/{iid}")
     def export_indicator(iid: int, save: bool = False, conn=C):
-        return maybe_save(csvio.export_indicator_values(conn, iid), f"지표_{iid}", save)
+        return maybe_save(csvio.export_indicator_values(conn, iid), i18n.label("export.indicator", settings.language(conn), id=iid), save)
 
     @app.get("/api/templates/{name}")
     def get_template(name: str, save: bool = False, conn=C):
-        return maybe_save(csvio.template(name, settings.language(conn)), f"양식_{name}", save)
+        return maybe_save(csvio.template(name, settings.language(conn)), i18n.label("export.template", settings.language(conn), name=name), save)
 
     @app.post("/api/import/records")
     async def import_records(request: Request, dry_run: bool = True, create_missing: bool = False, conn=C):

@@ -25,7 +25,7 @@ def get_public(conn) -> dict:
         v = get(conn, k)
         if k in SECRET_KEYS:
             out[k + "_set"] = bool(v)
-            out[k] = (v[:3] + "…" + v[-2:]) if v and len(v) > 6 else ("설정됨" if v else "")
+            out[k] = (v[:3] + "…" + v[-2:]) if v and len(v) > 6 else (i18n.label("settings.secret_set", language(conn)) if v else "")
         elif k in DEFAULTS:
             out[k] = v if v in ALLOWED[k] else DEFAULTS[k]
         else:

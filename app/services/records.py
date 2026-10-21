@@ -1,8 +1,10 @@
 """수입 / 지출 계획 / 실제 지출 기록 CRUD."""
 import sqlite3
 
+from .. import i18n
 from ..db import transaction
 from ..util import AppError, clean_text, month_of, parse_amount, parse_date, parse_month, rows
+from . import settings
 from .categories import RECORD_KIND_TO_CATEGORY
 
 KINDS = ("income", "plan", "expense")
@@ -210,4 +212,10 @@ def list_records(conn, kind: str | None = None, month: str | None = None, basis:
         {"WHERE " + " AND ".join(where) if where else ""}
         ORDER BY r.month DESC, COALESCE(p.sort_order, c.sort_order), c.sort_order, r.id
     """
-    return [_decorate(r) for r in rows(conn.execute(sql, params))]
+    lang = settings.language(conn)
+    out = [_decorate(r) for r in rows(conn.execute(sql, params))]
+    for r in out:
+        if r.get("tag") is not None:
+            # 시스템이 넣은 기록(move·settle)만 보여 줄 때 번역한다. 저장 값·검색 q 는 그대로.
+            r["item"], r["memo"] = i18n.system_text(r.get("item"), lang), i18n.system_text(r.get("memo"), lang)
+    return out

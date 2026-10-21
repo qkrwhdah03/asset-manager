@@ -36,6 +36,8 @@ function App() {
   setLocale(settings);
   const lang = settings.language === "en" ? "en" : "ko";
   if (document.documentElement.lang !== lang) document.documentElement.lang = lang;
+  const title = t("app.name");
+  if (document.title !== title) document.title = title;
 
   const entry = PAGES.find(p => p[0] === route.page) || PAGES[0];
   const Page = entry[3];

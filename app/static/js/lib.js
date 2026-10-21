@@ -41,14 +41,14 @@ export async function api(path, { method = "GET", body, raw, params } = {}) {
   try {
     res = await fetch(url, { method, headers, body: payload });
   } catch (e) {
-    throw new ApiError("서버와 통신할 수 없습니다. 프로그램이 실행 중인지 확인하세요.");
+    throw new ApiError(t("common.api_unreachable"));
   }
   const ct = res.headers.get("content-type") || "";
   const data = ct.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
     let msg = typeof data === "object" ? data.detail : data;
     if (Array.isArray(msg)) msg = msg.map(d => d.msg).join(", ");
-    throw new ApiError(msg || `요청 실패 (${res.status})`);
+    throw new ApiError(msg || t("common.request_failed", { status: res.status }));
   }
   if (method !== "GET" && !path.startsWith("/open-folder")) notifyDataChange();
   return data;
@@ -84,7 +84,7 @@ export const won = (n, { sign = false, unit = true } = {}) => {
   const c = getLocale().currency;
   if (c === "symbol") return pre + "₩" + s;
   if (c === "code") return pre + "KRW " + s;
-  return pre + s + "원";
+  return pre + s + "원";   // i18n-ok
 };
 export const num = (n, d = 2) => (n === null || n === undefined || n === "") ? "–"
   : Number(n).toLocaleString(numLocale(), { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -101,8 +101,8 @@ export const shortWon = (v) => {
     if (a >= 1e3) return Math.round(v / 1e3) + "K";
     return String(v);
   }
-  if (a >= 1e8) return (v / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, "") + "억";
-  if (a >= 1e4) return Math.round(v / 1e4).toLocaleString("ko-KR") + "만";
+  if (a >= 1e8) return (v / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, "") + "억";   // i18n-ok
+  if (a >= 1e4) return Math.round(v / 1e4).toLocaleString("ko-KR") + "만";   // i18n-ok
   return String(v);
 };
 
@@ -121,7 +121,7 @@ export const monthLabel = (m) => {
   if (f === "iso") return `${y}-${mm}`;
   if (f === "dot") return `${y}.${mm}`;
   if (f === "en") return `${MONTHS_EN[Number(mm) - 1]} ${y}`;
-  return `${y}년 ${Number(mm)}월`;
+  return `${y}년 ${Number(mm)}월`;   // i18n-ok
 };
 // 날짜(YYYY-MM-DD) 표시: iso 2026-10-21 · dot 2026.10.21 · ko 2026년 10월 21일 · en Oct 21, 2026
 export const dateLabel = (d) => {
@@ -130,9 +130,27 @@ export const dateLabel = (d) => {
   if (f === "iso") return `${y}-${mm}-${dd}`;
   if (f === "dot") return `${y}.${mm}.${dd}`;
   if (f === "en") return `${MONTHS_EN[Number(mm) - 1]} ${Number(dd)}, ${y}`;
-  return `${y}년 ${Number(mm)}월 ${Number(dd)}일`;
+  return `${y}년 ${Number(mm)}월 ${Number(dd)}일`;   // i18n-ok
 };
-export const parseMoney = (s) => String(s ?? "").replace(/KRW|[,원₩\s]/gi, "");
+// 차트 축용 짧은 월(YYYY-MM): en Oct · ko 10월. iso/dot 은 언어를 따른다.
+export const monthShort = (m) => {
+  if (!m) return "";
+  const mm = Number(String(m).slice(5, 7)), { dateFormat: f, language } = getLocale();
+  const en = f === "en" || ((f === "iso" || f === "dot") && language === "en");
+  return en ? MONTHS_EN[mm - 1] : `${mm}월`;   // i18n-ok
+};
+// 연도 표시: ko 2026년 · 그 밖(iso/dot/en) 2026
+export const yearLabel = (y) => {
+  if (y === null || y === undefined || y === "") return "";
+  return getLocale().dateFormat === "ko" ? `${y}년` : String(y);   // i18n-ok
+};
+// 날짜·시각(YYYY-MM-DDTHH:MM[:SS]) 표시: 날짜는 dateLabel, 시각은 HH:MM
+export const dateTimeLabel = (s) => {
+  if (!s) return "";
+  const str = String(s), time = str.slice(11, 16);
+  return time ? `${dateLabel(str.slice(0, 10))} ${time}` : dateLabel(str.slice(0, 10));
+};
+export const parseMoney = (s) => String(s ?? "").replace(/KRW|[,원₩\s]/gi, "");   // i18n-ok
 export const fmtMoneyInput = (s) => {
   const raw = parseMoney(s);
   if (raw === "" || raw === "-") return raw;
@@ -165,7 +183,7 @@ export function Modal({ title, onClose, children, footer, wide }) {
   }, [onClose]);
   return html`<div class="modal-back" onMouseDown=${(e) => e.target === e.currentTarget && onClose()}>
     <div class="modal ${wide ? "wide" : ""}" role="dialog">
-      <div class="modal-head"><h3>${title}</h3><button class="btn link" onClick=${onClose} title="닫기">✕</button></div>
+      <div class="modal-head"><h3>${title}</h3><button class="btn link" onClick=${onClose} title=${t("common.close")}>✕</button></div>
       <div class="modal-body">${children}</div>
       ${footer && html`<div class="modal-foot">${footer}</div>`}
     </div></div>`;
@@ -184,10 +202,10 @@ export function MoneyInput({ value, onInput, placeholder = "0", autofocus, onKey
 
 export function MonthPicker({ value, onChange }) {
   return html`<div class="month-picker">
-    <button class="btn" onClick=${() => onChange(addMonths(value, -1))} title="이전 달">◀</button>
+    <button class="btn" onClick=${() => onChange(addMonths(value, -1))} title=${t("common.prev_month")}>◀</button>
     <input type="month" value=${value} onChange=${(e) => e.target.value && onChange(e.target.value)} />
-    <button class="btn" onClick=${() => onChange(addMonths(value, 1))} title="다음 달">▶</button>
-    <button class="btn" onClick=${() => onChange(thisMonth())}>이번 달</button>
+    <button class="btn" onClick=${() => onChange(addMonths(value, 1))} title=${t("common.next_month")}>▶</button>
+    <button class="btn" onClick=${() => onChange(thisMonth())}>${t("common.this_month")}</button>
   </div>`;
 }
 
@@ -200,9 +218,9 @@ export function Empty({ title, children }) {
   return html`<div class="empty"><b>${title}</b>${children}</div>`;
 }
 
-export function Loading() { return html`<div class="empty">불러오는 중…</div>`; }
+export function Loading() { return html`<div class="empty">${t("common.loading")}</div>`; }
 export function ErrorBox({ error, onRetry }) {
-  return html`<div class="notice err">${error} ${onRetry && html`<button class="btn sm" onClick=${onRetry}>다시 시도</button>`}</div>`;
+  return html`<div class="notice err">${error} ${onRetry && html`<button class="btn sm" onClick=${onRetry}>${t("common.retry")}</button>`}</div>`;
 }
 
 // ───────── 차트 ─────────
@@ -236,7 +254,7 @@ export function ChartView({ config, className = "chart-box", height }) {
     chart.current = new Chart(ref.current, config);
     return () => { chart.current?.destroy(); chart.current = null; };
   }, [JSON.stringify(config, (k, v) => typeof v === "function" ? String(v) : v)]);
-  if (!window.Chart) return html`<div class="notice warn">차트 라이브러리를 불러오지 못했습니다.</div>`;
+  if (!window.Chart) return html`<div class="notice warn">${t("common.chart_failed")}</div>`;
   return html`<div class=${className} style=${height ? `height:${height}px` : ""}><canvas ref=${ref}></canvas></div>`;
 }
 
@@ -258,7 +276,7 @@ export async function exportFile(path, params = {}) {
   if (window.pywebview) {
     try {
       const r = await api(path, { params: { ...params, save: true } });
-      toast(`저장했습니다:\n${r.path}`, "ok");
+      toast(t("common.saved_to", { path: r.path }), "ok");
       await api("/open-folder", { method: "POST", body: { which: "exports" } });
     } catch (e) { toastErr(e); }
     return;

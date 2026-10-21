@@ -12,8 +12,10 @@
 import calendar
 from datetime import date
 
+from .. import i18n
 from ..db import transaction
 from ..util import AppError, month_end, parse_amount, parse_month, rows
+from . import settings
 
 
 def _pace(month: str) -> float:
@@ -32,20 +34,25 @@ def _categories(conn) -> list[dict]:
         "SELECT id, name, kind, color, memo, is_active, sort_order FROM categories ORDER BY sort_order, id"))
 
 
-def _item_view(r: dict) -> dict:
-    return {"id": r["id"], "item": r["item"], "amount": r["amount"], "txn_date": r["txn_date"],
-            "memo": r["memo"], "tag": r["tag"]}
+def _item_view(r: dict, lang: str = i18n.DEFAULT_LANGUAGE) -> dict:
+    item, memo = r["item"], r["memo"]
+    if r["tag"] is not None:
+        # 시스템이 넣은 기록(move·settle)만 보여 줄 때 번역한다. 저장 값은 그대로.
+        item, memo = i18n.system_text(item, lang), i18n.system_text(memo, lang)
+    return {"id": r["id"], "item": item, "amount": r["amount"], "txn_date": r["txn_date"],
+            "memo": memo, "tag": r["tag"]}
 
 
 def get_budget(conn, month: str) -> dict:
     month = parse_month(month)
+    lang = settings.language(conn)
     cats = _categories(conn)
     pace = _pace(month)
 
     # ── 소득: 항목별 세부항목 ──
     inc = {}
     for r in rows(conn.execute("SELECT * FROM records WHERE kind='income' AND budget_month=? ORDER BY id", (month,))):
-        inc.setdefault(r["category_id"], []).append(_item_view(r))
+        inc.setdefault(r["category_id"], []).append(_item_view(r, lang))
     income_items = []
     for c in cats:
         items = inc.get(c["id"], [])
@@ -70,7 +77,7 @@ def get_budget(conn, month: str) -> dict:
             plan_base[r["category_id"]] = r["amt"]
     exp = {}
     for r in rows(conn.execute("SELECT * FROM records WHERE kind='expense' AND month=? ORDER BY tag IS NOT NULL, id", (month,))):
-        exp.setdefault(r["category_id"], []).append(_item_view(r))
+        exp.setdefault(r["category_id"], []).append(_item_view(r, lang))
     envelopes = []
     for c in cats:
         cid = c["id"]
