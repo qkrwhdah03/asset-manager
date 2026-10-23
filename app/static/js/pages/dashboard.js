@@ -1,7 +1,31 @@
 import {
   html, useApi, won, pct, cls, monthLabel, thisMonth, addMonths, MonthPicker, Segmented, ChartView, wonAxis,
-  PALETTE, Empty, ErrorBox, navigate, setParams, monthShort, yearLabel,
+  PALETTE, Empty, ErrorBox, navigate, setParams, monthShort, yearLabel, useApp, useState, api, toastErr,
 } from "../lib.js";
+
+// Dashboard section keys in default (source) order (F-041).
+export const DASH_SECTIONS = ["month", "flow"];
+
+// Stored setting string -> section key array. Only an exact comma-joined permutation of DASH_SECTIONS
+// (no spaces) is accepted; anything else yields a copy of DASH_SECTIONS.
+export function parseDashOrder(value) {
+  if (typeof value !== "string" || value === "") return [...DASH_SECTIONS];
+  const keys = value.split(",");
+  const ok = keys.length === DASH_SECTIONS.length && new Set(keys).size === keys.length
+    && keys.every(k => DASH_SECTIONS.includes(k));
+  return ok ? keys : [...DASH_SECTIONS];
+}
+
+// New array with `from` removed and re-inserted before/after `to`. Input is not mutated;
+// invalid moves return a copy of `order`.
+export function moveSection(order, from, to, pos) {
+  const copy = [...order];
+  if (from === to || !order.includes(from) || !order.includes(to) || (pos !== "before" && pos !== "after")) return copy;
+  const rest = copy.filter(k => k !== from);
+  const i = rest.indexOf(to) + (pos === "after" ? 1 : 0);
+  rest.splice(i, 0, from);
+  return rest;
+}
 
 export function DashboardPage({ params }) {
   const month = params.month || thisMonth();
@@ -19,13 +43,33 @@ export function DashboardPage({ params }) {
   const s = summary.data;
   const goCash = () => navigate("cashflow", { month });
 
-  return html`<div class="page">
-    <div class="page-head">
-      <h1>대시보드</h1>
-      <${MonthPicker} value=${month} onChange=${(m) => setParams({ month: m })} />
-    </div>
+  // Section order (F-041): temporary order while saving, else the stored setting (default before settings load).
+  const { settings, reloadSettings } = useApp();
+  const [pending, setPending] = useState(null);
+  const [drag, setDrag] = useState(null);
+  const [hint, setHint] = useState(null);
+  const order = pending || parseDashOrder(settings?.dashboard_order);
+
+  const handle = (key) => html`<span class="handle" draggable="true" title="끌어서 순서 변경"
+    onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); setDrag(key); }}
+    onDragEnd=${() => { setDrag(null); setHint(null); }}>⠿</span>`;
+
+  const dropOn = (k) => {
+    const from = drag, pos = hint && hint.key === k ? hint.pos : null;
+    setDrag(null); setHint(null);
+    if (!from) return;
+    const next = moveSection(order, from, k, pos);
+    if (next.join(",") === order.join(",")) return;
+    setPending(next);
+    api("/settings", { method: "PUT", body: { dashboard_order: next.join(",") } })
+      .then(() => reloadSettings())
+      .catch(toastErr)
+      .finally(() => setPending(null));
+  };
+
+  const monthSection = html`
     <section class="dash-section dash-month">
-      <h2 class="section-title">${monthLabel(month)}</h2>
+      <div class="section-bar">${handle("month")}<h2 class="section-title">${monthLabel(month)}</h2></div>
       ${summary.error && html`<${ErrorBox} error=${summary.error} onRetry=${summary.reload} />`}
 
       <div class="cards">
@@ -63,9 +107,11 @@ export function DashboardPage({ params }) {
             : html`<${PlanChart} data=${pva.data} onPick=${() => goCash()} />`)}</div>
         </div>
       </div>
-    </section>
+    </section>`;
 
+  const flowSection = html`
     <section class="dash-section dash-flow">
+      <div class="section-bar">${handle("flow")}</div>
       <div class="panel">
         <div class="panel-head"><h2>월별 수입·지출·저축 추이</h2><span class="hint">막대는 월별 수입·저축·저축 외 지출이고, 클릭하면 해당 월로 이동합니다.</span>
           <div class="spacer"></div>
@@ -83,7 +129,20 @@ export function DashboardPage({ params }) {
           <div class="panel-body">${annual.data && html`<${AnnualSummary} d=${annual.data} />`}</div>
         </div>
       </div>
-    </section>
+    </section>`;
+
+  return html`<div class="page">
+    <div class="page-head">
+      <h1>대시보드</h1>
+      <${MonthPicker} value=${month} onChange=${(m) => setParams({ month: m })} />
+    </div>
+    ${order.map(k => html`<div class=${"dash-slot" + (hint && hint.key === k ? (hint.pos === "before" ? " drop-before" : " drop-after") : "") + (drag === k ? " dragging" : "")}
+      key=${k}
+      onDragOver=${(e) => { if (!drag || drag === k) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect();
+        const pos = e.clientY < r.top + r.height / 2 ? "before" : "after"; if (!hint || hint.key !== k || hint.pos !== pos) setHint({ key: k, pos }); }}
+      onDrop=${(e) => { e.preventDefault(); dropOn(k); }}>
+      ${k === "month" ? monthSection : flowSection}
+    </div>`)}
   </div>`;
 }
 

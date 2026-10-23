@@ -782,16 +782,18 @@ def test_sections_boxed_single_title_no_flow_word():
 # static: app.css
 
 def test_css_dash_section_boxed():
+    # loop 2026-10-24-005: sections stay boxed (border) but lose the tinted background
     sec = _css_rule(CSS.read_text(encoding="utf-8"), ".dash-section")
     assert sec is not None, ".dash-section rule missing"
-    for w in ("margin-bottom", "background", "border", "var(--line-2)"):
+    for w in ("margin-bottom", "border"):
         assert w in sec, w
+    for w in ("var(--line-2)", "var(--accent-soft)"):
+        assert w not in sec, w
 
 
-def test_css_dash_month_accent():
-    rule = _css_rule(CSS.read_text(encoding="utf-8"), ".dash-month")
-    assert rule is not None, ".dash-month rule missing"
-    assert "var(--accent-soft)" in rule
+def test_css_no_dash_month_rule():
+    # loop 2026-10-24-005: the month-section accent tint is removed
+    assert not re.search(r"\.dash-month(?![\w-])", CSS.read_text(encoding="utf-8")), ".dash-month selector present"
 
 
 def test_css_section_title_size_and_color():
