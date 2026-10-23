@@ -8,7 +8,8 @@
 - 저축액 = 그 달 저축 항목에 넣은 실제 지출 합계(정산 지출 줄 포함, 계획 제외, 지출과 같은 월 기준).
     자산 계좌 잔액의 실제 변화(자산 페이지의 '자산 증감')와는 다른 값이다.
 - 저축률 = 저축액 / 수입 x 100 (수입이 0 이하이면 없음).
-- 생활비 지출 = 실제 지출 합계 - 저축액.
+- 저축 외 지출(non-savings expense) = 실제 지출 합계 - 저축액 (API key: living_expense)
+- 남은 돈(leftover) = 수입 - 실제 지출
 - 계획 대비 차이 = 실제 지출 - 지출 계획. 양수 = 초과 지출, 음수 = 절약.
 """
 import sqlite3
@@ -69,6 +70,7 @@ def trend(conn, start: str, end: str, basis: str = "budget") -> list[dict]:
             "savings_rate": round(s / i * 100, 1) if i > 0 else None,
             "living_expense": e - s,
             "plan_diff": e - p if p else None,
+            "leftover": i - e,
         })
     return out
 

@@ -32,7 +32,7 @@ export function DashboardPage({ params }) {
         <div class="value">${s ? won(s.income) : "–"}</div>
         <div class="sub">${s ? `전월 ${won(s.prev_income)}` : ""}</div></div>
       <div class="card clickable" title="저축 항목을 뺀 지출" onClick=${() => goCash()}>
-        <div class="label">생활비 지출</div>
+        <div class="label">저축 외 지출</div>
         <div class="value">${s ? won(s.living_expense) : "–"}</div>
         <div class="sub">${s ? `전월 ${won(s.prev_living_expense)}` : ""}</div></div>
       <div class="card" title="저축 항목(설정 > 항목에서 지정)에 넣은 돈의 합계. 저축률 = 저축액 ÷ 수입">
@@ -44,7 +44,7 @@ export function DashboardPage({ params }) {
     ${s && s.pending_income.count > 0 && html`<div class="notice warn">이 달 소득 중 아직 입금일이 없는(미입금) 기록이 ${s.pending_income.count}건, ${won(s.pending_income.total)} 있습니다. 돈이 들어오면 월 예산에서 입금일을 입력하세요.</div>`}
 
     <div class="panel">
-      <div class="panel-head"><h2>월별 수입·지출 추이</h2><span class="hint">막대를 클릭하면 해당 월로 이동</span>
+      <div class="panel-head"><h2>월별 수입·지출·저축 추이</h2><span class="hint">막대는 수입의 쓰임(저축 외 지출·저축·남은 돈)이고, 클릭하면 해당 월로 이동합니다.</span>
         <div class="spacer"></div>
         <${Segmented} value=${period} onChange=${(p) => setParams({ period: p })} options=${[["6", "최근 6개월"], ["12", "최근 12개월"], ["year", yearLabel(year)]]} /></div>
       <div class="panel-body">${trend.data ? html`<${TrendChart} data=${trend.data} />` : trend.error ? html`<${ErrorBox} error=${trend.error} />` : ""}</div>
@@ -52,7 +52,7 @@ export function DashboardPage({ params }) {
 
     <div class="grid c2">
       <div class="panel">
-        <div class="panel-head"><h2>저축액 · 저축률</h2><span class="hint">저축액 = 저축 항목에 넣은 돈, 저축률 = 저축액 ÷ 수입</span></div>
+        <div class="panel-head"><h2>저축률</h2><span class="hint">저축률 = 저축액 ÷ 수입</span></div>
         <div class="panel-body">${trend.data && html`<${SavingsChart} data=${trend.data} />`}</div>
       </div>
       <div class="panel">
@@ -85,20 +85,43 @@ function TrendChart({ data }) {
     data: {
       labels,
       datasets: [
-        { label: "수입", data: data.map(d => d.income), backgroundColor: "#2459d6", order: 2 },
-        { label: "실제 지출", data: data.map(d => d.expense), backgroundColor: "#e8743b", order: 2 },
-        { label: "지출 계획", data: data.map(d => d.plan || null), type: "line", borderColor: "#9aa3b2", borderDash: [4, 3], pointRadius: 2, backgroundColor: "#9aa3b2", order: 1 },
+        // Income line uses its own stack so it is not added onto the stacked bars.
+        { type: "line", label: "수입", data: data.map(d => d.income), borderColor: "#2459d6", backgroundColor: "#2459d6", pointRadius: 3, borderWidth: 2, stack: "income", order: 1 },
+        { label: "저축 외 지출", data: data.map(d => d.living_expense), backgroundColor: "#e8743b", stack: "flow", order: 2 },
+        { label: "저축", data: data.map(d => d.savings), backgroundColor: "#19a979", stack: "flow", order: 2 },
+        { label: "남은 돈", data: data.map(d => d.leftover > 0 ? d.leftover : null), backgroundColor: "#c3c8d1", stack: "flow", order: 2 },
       ],
     },
     options: {
-      scales: { y: wonAxis, x: { grid: { display: false } } },
+      interaction: { mode: "index", intersect: false },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { ...wonAxis, stacked: true } },
       onClick: (_e, els) => { if (els.length) navigate("cashflow", { month: data[els[0].index].month }); },
       plugins: { tooltip: { callbacks: { title: (items) => monthLabel(data[items[0].dataIndex].month) } } },
     },
   };
-  const hasAny = data.some(d => d.income || d.expense || d.plan);
+  const hasAny = data.some(d => d.income || d.expense);
   return hasAny ? html`<${ChartView} config=${config} className="chart-box tall" />` : html`<${Empty} title="이 기간의 기록이 없습니다">월별 수입·지출 페이지에서 기록을 추가하면 추이가 표시됩니다.<//>`;
 }
+
+// Inline plugin: draws each bar's savings rate as text above (or below, if negative) the bar.
+const rateLabels = {
+  id: "rateLabels",
+  afterDatasetsDraw(chart) {
+    const ctx = chart.ctx;
+    const values = chart.data.datasets[0].data;
+    ctx.save();
+    ctx.font = `11px ${Chart.defaults.font.family}`;
+    ctx.fillStyle = "#4a5263";
+    ctx.textAlign = "center";
+    chart.getDatasetMeta(0).data.forEach((bar, i) => {
+      const v = values[i];
+      if (v == null) return;
+      ctx.textBaseline = v >= 0 ? "bottom" : "top";
+      ctx.fillText(pct(v), bar.x, v >= 0 ? bar.y - 4 : bar.y + 4);
+    });
+    ctx.restore();
+  },
+};
 
 function SavingsChart({ data }) {
   if (!data.some(d => d.income || d.expense)) return html`<${Empty} title="이 기간의 기록이 없습니다" />`;
@@ -107,20 +130,24 @@ function SavingsChart({ data }) {
     data: {
       labels: data.map(d => monthShort(d.month)),
       datasets: [
-        // order 가 작을수록 위에 그려진다 → 저축률 선을 막대 위에
-        { label: "저축액", data: data.map(d => d.savings), backgroundColor: data.map(d => d.savings >= 0 ? "#19a979" : "#d64545"), yAxisID: "y", order: 2 },
-        { label: "저축률", data: data.map(d => d.savings_rate), type: "line", borderColor: "#7c3aed", backgroundColor: "#fff",
-          pointBorderColor: "#7c3aed", pointBorderWidth: 2, pointRadius: 4, borderWidth: 2.5, yAxisID: "y1", order: 1,
-          fmt: (v) => pct(v), spanGaps: true },
+        { label: "저축률", data: data.map(d => d.savings_rate), backgroundColor: data.map(d => d.savings_rate >= 0 ? "#19a979" : "#d64545") },
       ],
     },
     options: {
-      scales: { y: wonAxis, y1: { position: "right", grid: { display: false }, ticks: { callback: (v) => v + "%" } }, x: { grid: { display: false } } },
-      plugins: { legend: { labels: { generateLabels: () => [
-        { text: "저축액", fillStyle: "#19a979", strokeStyle: "#19a979", datasetIndex: 0 },
-        { text: "저축률", fillStyle: "#7c3aed", strokeStyle: "#7c3aed", datasetIndex: 1 },
-      ] } } },
+      layout: { padding: { top: 18 } },
+      scales: {
+        y: { suggestedMin: 0, suggestedMax: 100, ticks: { callback: (v) => v + "%" }, grid: { color: "#eef0f3" } },
+        x: { grid: { display: false } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          title: (items) => monthLabel(data[items[0].dataIndex].month),
+          label: (ctx) => ` 저축률 ${pct(data[ctx.dataIndex].savings_rate)} · 저축액 ${won(data[ctx.dataIndex].savings)}`,
+        } },
+      },
     },
+    plugins: [rateLabels],
   };
   return html`<${ChartView} config=${config} />`;
 }
@@ -167,11 +194,12 @@ function PlanChart({ data, onPick }) {
 function AnnualSummary({ d }) {
   const months = d.months.filter(m => m.income || m.expense);
   return html`<div>
-    <dl class="kv" style="margin:0 0 10px">
+    <dl class="kv boxed">
       <dt>연간 수입</dt><dd><b>${won(d.income)}</b></dd>
-      <dt>연간 생활비 지출</dt><dd><b>${won(d.living_expense)}</b></dd>
-      <dt>연간 저축액</dt><dd class=${cls(d.savings)}><b>${won(d.savings)}</b> (${pct(d.savings_rate)})</dd>
-      <dt>월평균 생활비 지출</dt><dd>${months.length ? won(d.living_expense / months.length) : "–"} <span class="muted small">(기록 있는 ${months.length}개월)</span></dd>
+      <dt>연간 저축 외 지출</dt><dd><b>${won(d.living_expense)}</b></dd>
+      <dt>연간 저축액</dt><dd class=${cls(d.savings)}><b>${won(d.savings)}</b></dd>
+      <dt>연간 저축률</dt><dd>${pct(d.savings_rate)}</dd>
+      <dt>월평균 저축 외 지출</dt><dd>${months.length ? won(d.living_expense / months.length) : "–"} <span class="muted small">(기록 있는 ${months.length}개월)</span></dd>
     </dl>
     ${d.top_expenses.length > 0 && html`<table class="t">
       <thead><tr><th>지출 상위 항목</th><th class="num">금액</th><th class="num">비중</th></tr></thead>

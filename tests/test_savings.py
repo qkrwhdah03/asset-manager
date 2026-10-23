@@ -417,9 +417,9 @@ def test_stats_api_new_keys(client):
 
 def test_dashboard_js_literals():
     src = (JS / "pages" / "dashboard.js").read_text(encoding="utf-8")
-    for w in ("생활비 지출", "living_expense", "저축액", "실제 지출"):
+    for w in ("저축 외 지출", "living_expense", "저축액", "실제 지출"):
         assert w in src, w
-    for w in ("지출 계획 대비", "(수입−지출)", "수입 − 실제 지출"):
+    for w in ("생활비 지출", "지출 계획 대비", "(수입−지출)", "수입 − 실제 지출"):
         assert w not in src, w
 
 
