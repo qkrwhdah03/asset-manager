@@ -279,3 +279,4 @@ tr:hover .move-x { visibility: visible; }
 /* 확인 창(confirmBox): 다른 모달 위, 토스트 아래 */
 .modal-back.confirm { z-index: 60; }
 .confirm-msg { white-space: pre-wrap; }
+.savings-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); white-space: nowrap; cursor: pointer; }

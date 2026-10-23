@@ -110,8 +110,14 @@ def test_trend_savings_and_rate(conn):
     t = stats.trend(conn, "2026-07", "2026-09")
     assert [x["month"] for x in t] == ["2026-07", "2026-08", "2026-09"]
     aug = t[1]
-    assert aug["savings"] == 1_500_000 and aug["savings_rate"] == 75.0
+    # savings = expenses in savings categories only (not income - expense)
+    assert aug["savings"] == 0 and aug["savings_rate"] == 0.0 and aug["living_expense"] == 500_000
     assert t[0]["savings_rate"] is None
+    records.create_record(conn, {"kind": "expense", "category_id": cat_id(conn, "저축·투자"), "amount": 600_000,
+                                 "month": "2026-08"})
+    aug = stats.trend(conn, "2026-07", "2026-09")[1]
+    assert aug["savings"] == 600_000 and aug["savings_rate"] == 30.0
+    assert aug["expense"] == 1_100_000 and aug["living_expense"] == 500_000
 
 
 def test_record_update_and_validation(conn):

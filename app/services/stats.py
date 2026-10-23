@@ -4,13 +4,17 @@
 - 집계 기준(basis)
     budget : 월 예산과 같은 기준(기본). 소득은 예산 월(그 달에 쓸 돈으로 넣은 달), 계획·지출은 그 달.
     cash   : 입금·결제일 기준. 소득은 실제 입금일의 월(미입금 제외), 지출은 결제일(없으면 발생일)의 월.
-- 저축액(현금흐름 기준) = 수입 합계 - 실제 지출 합계 (같은 기준으로 집계).
+- 저축 항목: 설정 > 항목에서 '저축'으로 지정한 지출 항목(categories.savings_category_ids).
+- 저축액 = 그 달 저축 항목에 넣은 실제 지출 합계(정산 지출 줄 포함, 계획 제외, 지출과 같은 월 기준).
     자산 계좌 잔액의 실제 변화(자산 페이지의 '자산 증감')와는 다른 값이다.
+- 저축률 = 저축액 / 수입 x 100 (수입이 0 이하이면 없음).
+- 생활비 지출 = 실제 지출 합계 - 저축액.
 - 계획 대비 차이 = 실제 지출 - 지출 계획. 양수 = 초과 지출, 음수 = 절약.
 """
 import sqlite3
 
 from ..util import AppError, add_months, month_range, parse_month
+from .categories import savings_category_ids
 from .records import month_expr
 
 BASES = ("budget", "cash")
@@ -33,6 +37,21 @@ def totals_by_month(conn: sqlite3.Connection, kind: str, start: str, end: str, b
     return {r["m"]: r["total"] for r in cur.fetchall()}
 
 
+def _savings_by_month(conn, start: str, end: str, basis: str) -> dict[str, int]:
+    """저축 항목에 넣은 실제 지출의 월별 합계."""
+    ids = sorted(savings_category_ids(conn))
+    if not ids:
+        return {}
+    mexpr = month_expr("expense", basis)
+    q = ",".join("?" * len(ids))
+    cur = conn.execute(
+        f"""SELECT {mexpr} AS m, SUM(r.amount) AS total FROM records r
+            WHERE r.kind = 'expense' AND r.category_id IN ({q}) AND {mexpr} BETWEEN ? AND ? GROUP BY m""",
+        (*ids, start, end),
+    )
+    return {r["m"]: r["total"] for r in cur.fetchall()}
+
+
 def trend(conn, start: str, end: str, basis: str = "budget") -> list[dict]:
     start, end = parse_month(start), parse_month(end)
     _check_basis(basis)
@@ -41,13 +60,14 @@ def trend(conn, start: str, end: str, basis: str = "budget") -> list[dict]:
     inc = totals_by_month(conn, "income", start, end, basis)
     exp = totals_by_month(conn, "expense", start, end, basis)
     plan = totals_by_month(conn, "plan", start, end, basis)
+    sav = _savings_by_month(conn, start, end, basis)
     out = []
     for m in months:
-        i, e, p = inc.get(m, 0), exp.get(m, 0), plan.get(m, 0)
-        s = i - e
+        i, e, p, s = inc.get(m, 0), exp.get(m, 0), plan.get(m, 0), sav.get(m, 0)
         out.append({
             "month": m, "income": i, "expense": e, "plan": p, "savings": s,
             "savings_rate": round(s / i * 100, 1) if i > 0 else None,
+            "living_expense": e - s,
             "plan_diff": e - p if p else None,
         })
     return out
@@ -170,8 +190,10 @@ def month_summary(conn, month: str, basis: str = "budget") -> dict:
     pva = plan_vs_actual(conn, month, basis)
     return {
         "month": month, "basis": basis, "basis_label": BASIS_LABEL[basis],
-        **{k: t[k] for k in ("income", "expense", "plan", "savings", "savings_rate")},
+        **{k: t[k] for k in ("income", "expense", "plan", "savings", "savings_rate", "living_expense")},
         "prev_income": prev["income"], "prev_expense": prev["expense"], "prev_savings": prev["savings"],
+        "prev_living_expense": prev["living_expense"],
+        "savings_category_count": len(savings_category_ids(conn)),
         "plan_diff": pva["total_diff"] if pva["total_plan"] else None,
         "remaining_budget": pva["remaining_budget"] if pva["total_plan"] else None,
         "over_count": pva["over_count"],
@@ -186,10 +208,12 @@ def annual(conn, year: int, basis: str = "budget") -> dict:
     inc = sum(m["income"] for m in months)
     exp = sum(m["expense"] for m in months)
     plan = sum(m["plan"] for m in months)
+    sav = sum(m["savings"] for m in months)
     return {
         "year": int(year), "basis": basis, "months": months,
-        "income": inc, "expense": exp, "plan": plan, "savings": inc - exp,
-        "savings_rate": round((inc - exp) / inc * 100, 1) if inc > 0 else None,
+        "income": inc, "expense": exp, "plan": plan, "savings": sav,
+        "savings_rate": round(sav / inc * 100, 1) if inc > 0 else None,
+        "living_expense": exp - sav,
         "top_expenses": category_breakdown(conn, "expense", f"{year}-01", f"{year}-12", basis)[:10],
         "top_incomes": category_breakdown(conn, "income", f"{year}-01", f"{year}-12", basis)[:10],
     }

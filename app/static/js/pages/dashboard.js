@@ -31,19 +31,15 @@ export function DashboardPage({ params }) {
         <div class="label">${monthLabel(month)} 수입</div>
         <div class="value">${s ? won(s.income) : "–"}</div>
         <div class="sub">${s ? `전월 ${won(s.prev_income)}` : ""}</div></div>
-      <div class="card clickable" onClick=${() => goCash()}>
-        <div class="label">실제 지출</div>
-        <div class="value">${s ? won(s.expense) : "–"}</div>
-        <div class="sub">${s ? `전월 ${won(s.prev_expense)}` : ""}</div></div>
-      <div class="card" title="저축액 = 수입 − 실제 지출 (현금흐름 기준)">
-        <div class="label">저축액 <span class="muted small">(수입−지출)</span></div>
+      <div class="card clickable" title="저축 항목을 뺀 지출" onClick=${() => goCash()}>
+        <div class="label">생활비 지출</div>
+        <div class="value">${s ? won(s.living_expense) : "–"}</div>
+        <div class="sub">${s ? `전월 ${won(s.prev_living_expense)}` : ""}</div></div>
+      <div class="card" title="저축 항목(설정 > 항목에서 지정)에 넣은 돈의 합계. 저축률 = 저축액 ÷ 수입">
+        <div class="label">저축액</div>
         <div class="value ${s ? cls(s.savings) : ""}">${s ? won(s.savings) : "–"}</div>
-        <div class="sub">저축률 ${s ? pct(s.savings_rate) : "–"}</div></div>
-      <div class="card clickable" onClick=${() => goCash()}>
-        <div class="label">지출 계획 대비</div>
-        <div class="value ${s && s.plan_diff !== null ? cls(s.plan_diff, true) : ""}">
-          ${s && s.plan_diff !== null ? (s.plan_diff > 0 ? `${won(s.plan_diff)} 초과` : s.plan_diff < 0 ? `${won(-s.plan_diff)} 절약` : "계획대로") : "–"}</div>
-        <div class="sub">${s && s.plan_diff !== null ? `계획 ${won(s.plan)} · 초과 항목 ${s.over_count}개` : "이 달 지출 계획 없음"}</div></div>
+        <div class="sub">${!s ? "" : s.savings_category_count === 0 ? "설정 > 항목에서 저축 항목을 지정하세요"
+          : `저축률 ${pct(s.savings_rate)} · 전월 ${won(s.prev_savings)}`}</div></div>
     </div>
     ${s && s.pending_income.count > 0 && html`<div class="notice warn">이 달 소득 중 아직 입금일이 없는(미입금) 기록이 ${s.pending_income.count}건, ${won(s.pending_income.total)} 있습니다. 돈이 들어오면 월 예산에서 입금일을 입력하세요.</div>`}
 
@@ -56,7 +52,7 @@ export function DashboardPage({ params }) {
 
     <div class="grid c2">
       <div class="panel">
-        <div class="panel-head"><h2>저축액 · 저축률</h2><span class="hint">저축액 = 수입 − 실제 지출</span></div>
+        <div class="panel-head"><h2>저축액 · 저축률</h2><span class="hint">저축액 = 저축 항목에 넣은 돈, 저축률 = 저축액 ÷ 수입</span></div>
         <div class="panel-body">${trend.data && html`<${SavingsChart} data=${trend.data} />`}</div>
       </div>
       <div class="panel">
@@ -69,7 +65,7 @@ export function DashboardPage({ params }) {
 
     <div class="grid c2">
       <div class="panel">
-        <div class="panel-head"><h2>지출 계획 대비 실제</h2><span class="hint">항목 클릭 → 계획 대비 실제 표</span></div>
+        <div class="panel-head"><h2>항목별 계획 대비 실제</h2><span class="hint">항목 클릭 → 계획 대비 실제 표</span></div>
         <div class="panel-body">${pva.data && (pva.data.items.length === 0
           ? html`<${Empty} title="이 달의 지출 계획이 없습니다">월 예산 화면의 지출 표에서 항목별 계획을 입력하세요.<//>`
           : html`<${PlanChart} data=${pva.data} onPick=${() => goCash()} />`)}</div>
@@ -173,9 +169,9 @@ function AnnualSummary({ d }) {
   return html`<div>
     <dl class="kv" style="margin:0 0 10px">
       <dt>연간 수입</dt><dd><b>${won(d.income)}</b></dd>
-      <dt>연간 실제 지출</dt><dd><b>${won(d.expense)}</b></dd>
+      <dt>연간 생활비 지출</dt><dd><b>${won(d.living_expense)}</b></dd>
       <dt>연간 저축액</dt><dd class=${cls(d.savings)}><b>${won(d.savings)}</b> (${pct(d.savings_rate)})</dd>
-      <dt>월평균 지출</dt><dd>${months.length ? won(d.expense / months.length) : "–"} <span class="muted small">(기록 있는 ${months.length}개월)</span></dd>
+      <dt>월평균 생활비 지출</dt><dd>${months.length ? won(d.living_expense / months.length) : "–"} <span class="muted small">(기록 있는 ${months.length}개월)</span></dd>
     </dl>
     ${d.top_expenses.length > 0 && html`<table class="t">
       <thead><tr><th>지출 상위 항목</th><th class="num">금액</th><th class="num">비중</th></tr></thead>

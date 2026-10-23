@@ -49,6 +49,8 @@ MESSAGES: dict[str, str] = {
     "category.duplicate_expense": "지출 항목에 '{name}'이(가) 이미 있습니다.",
     "category.has_records": "이 항목에는 기록 {count}건이 있습니다. 기록과 함께 삭제하려면 다시 확인하세요.",
     "category.delete_invalid_ids": "삭제할 항목 목록이 올바르지 않습니다.",
+    "category.invalid_savings": "저축 항목 지정 값이 올바르지 않습니다.",
+    "category.savings_income_kind": "소득 항목은 저축 항목으로 지정할 수 없습니다.",
 
     # ── 월 예산(budget) ──
     "budget.category_missing": "항목이 존재하지 않습니다.",

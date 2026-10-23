@@ -75,6 +75,7 @@ function CategoryList({ kind }) {
   };
   const recolor = (c, v) => { if (v && v !== c.color) run(() => api(`/categories/${c.id}`, { method: "PUT", body: { color: v } })); };
   const setMemo = (c, v) => { const m = v.trim(); if (m !== (c.memo || "")) run(() => api(`/categories/${c.id}`, { method: "PUT", body: { memo: m } })); };
+  const setSavings = (c, on) => run(() => api(`/categories/${c.id}`, { method: "PUT", body: { is_savings: on } }));
   const rename = (c, v) => { const n = v.trim(); if (n && n !== c.name) run(() => api(`/categories/${c.id}`, { method: "PUT", body: { name: n } })); };
   // 삭제 직전에 서버에서 최신 기록 수를 다시 받아 확인창에 쓴다(다른 화면에서 방금 추가한 기록도 반영)
   const freshCounts = async (ids) => {
@@ -107,7 +108,7 @@ function CategoryList({ kind }) {
 
   return html`<div class="panel">
     <div class="panel-head"><h2>${kind === "income" ? "소득 항목" : "지출 항목"}</h2>
-      <span class="hint">${kind === "income" ? "추가한 항목은 매달 소득 표에 나타납니다." : "추가한 항목은 매달 지출 표에 나타납니다."} ⠿ 끌어서 순서 변경, ✕ 삭제.</span>
+      <span class="hint">${kind === "income" ? "추가한 항목은 매달 소득 표에 나타납니다." : "추가한 항목은 매달 지출 표에 나타납니다."} ⠿ 끌어서 순서 변경, ✕ 삭제.${kind === "expense" ? " 저축에 체크한 항목은 대시보드에서 저축액으로 셉니다." : ""}</span>
       <div class="spacer"></div>
       ${sel.size > 0 && html`<span class="selbar"><b>${sel.size}개 선택</b>
         <button class="btn sm danger" onClick=${removeSelected}>선택 삭제</button>
@@ -125,10 +126,12 @@ function CategoryList({ kind }) {
           <input type="text" class="cell" value=${c.name} onBlur=${(e) => rename(c, e.target.value)} onKeyDown=${(e) => e.key === "Enter" && e.target.blur()} /></td>
         <td class="memocell"><input type="text" class="cell memo" value=${c.memo || ""} placeholder="메모"
           onBlur=${(e) => setMemo(c, e.target.value)} onKeyDown=${(e) => e.key === "Enter" && e.target.blur()} /></td>
+        ${kind === "expense" && html`<td class="nowrap"><label class="savings-flag" title="체크하면 대시보드에서 저축액으로 셉니다"><input type="checkbox" checked=${c.is_savings}
+          onChange=${(e) => setSavings(c, e.target.checked)} /> 저축</label></td>`}
         <td class="actions nowrap"><button class="btn link move-x" onClick=${() => setMoving(c)} title="이 항목의 기록을 다른 항목으로 옮기기(합치기·나누기)">옮기기</button>
           <button class="btn link del-x" onClick=${() => remove(c)} title="삭제">✕</button></td>
       </tr>`)}
-      ${list.length === 0 && html`<tr><td colspan="5"><${Empty} title="아직 항목이 없습니다">아래 칸에 이름을 쓰고 Enter를 누르세요.<//></td></tr>`}
+      ${list.length === 0 && html`<tr><td colspan=${kind === "expense" ? 6 : 5}><${Empty} title="아직 항목이 없습니다">아래 칸에 이름을 쓰고 Enter를 누르세요.<//></td></tr>`}
     </tbody></table>
     <div class="row" style="padding:8px 10px;border-top:1px solid var(--line-2)">
       <input type="text" value=${name} placeholder=${kind === "income" ? "새 소득 항목 이름 (예: 급여)" : "새 지출 항목 이름 (예: 식비)"} style="flex:1"
