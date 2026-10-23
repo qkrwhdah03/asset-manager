@@ -389,11 +389,16 @@ def test_trend_keeps_index_mode_and_navigate():
     assert re.search(r"navigate\(\s*" + Q + "cashflow" + Q, body)
 
 
-def test_plan_panel_title_has_month():
+def test_panel_titles_without_month():
+    # loop 2026-10-24-003: the month moved into the section heading; panel titles carry no month
     src = _dash()
-    assert "${monthLabel(month)} 항목별 계획 대비 실제" in src
-    assert "<h2>항목별 계획 대비 실제</h2>" not in src
-    assert "${monthLabel(month)} 항목별 지출 비중" in src
+    assert src.count("${monthLabel(month)}") == 1, src.count("${monthLabel(month)}")
+    for w in ("${monthLabel(month)} 항목별 계획 대비 실제", "${monthLabel(month)} 항목별 지출 비중",
+              "${monthLabel(month)} 수입"):
+        assert w not in src, w
+    assert "<h2>항목별 지출 비중</h2>" in src
+    assert "<h2>항목별 계획 대비 실제</h2>" in src
+    assert '<div class="label">수입</div>' in src
 
 
 def test_annual_top_items_table_lined():
@@ -413,3 +418,147 @@ def test_css_lined_table_rules():
     base = _css_rule(css, "table.t td")
     assert base is not None and "var(--line-2)" in base
     assert _css_rule(css, "table.t th") == base
+
+
+# ── loop 2026-10-24-003: month/flow sections, selected-month band ──
+
+SEC_MONTH = '<section class="dash-section dash-month">'
+SEC_FLOW = '<section class="dash-section dash-flow">'
+
+
+def _sections(src):
+    assert src.count(SEC_MONTH) == 1, src.count(SEC_MONTH)
+    assert src.count(SEC_FLOW) == 1, src.count(SEC_FLOW)
+    return src.index(SEC_MONTH), src.index(SEC_FLOW)
+
+
+def _savings():
+    return _fn_body(_dash(), "SavingsChart")
+
+
+def _month_band_def(src):
+    m = re.search(r"\bconst\s+monthBand\b", src)
+    assert m, "const monthBand not found"
+    # Cut at the next *top-level* definition (line start), not locals inside the plugin body.
+    nxt = re.search(r"^(const|function)\s+[A-Za-z_$]", src[m.end():], re.M)
+    return src[m.start(): m.end() + nxt.start()] if nxt else src[m.start():]
+
+
+def test_sections_present_once_and_ordered():
+    mpos, fpos = _sections(_dash())
+    assert mpos < fpos, (mpos, fpos)
+
+
+def test_section_headings():
+    src = _dash()
+    assert '<h2 class="section-title">${monthLabel(month)}</h2>' in src
+    assert '<h2 class="section-title">흐름</h2>' in src
+    mpos, fpos = _sections(src)
+    assert mpos < src.index('<h2 class="section-title">${monthLabel(month)}</h2>') < fpos
+    assert src.index('<h2 class="section-title">흐름</h2>') > fpos
+
+
+def test_month_label_template_once():
+    src = _dash()
+    assert src.count("${monthLabel(month)}") == 1
+
+
+def test_month_section_content_order():
+    src = _dash()
+    mpos, fpos = _sections(src)
+    pos = mpos
+    for w in ('class="cards"', "notice warn", "항목별 지출 비중", "항목별 계획 대비 실제"):
+        assert w in src[pos:], f"{w} not found after previous item in month section"
+        pos = src.index(w, pos)
+        assert pos < fpos, f"{w} must be inside the month section (before dash-flow)"
+    # every occurrence of these must be before dash-flow (not only the first one)
+    for w in ('class="cards"', "notice warn", "항목별 지출 비중", "항목별 계획 대비 실제"):
+        assert w not in src[fpos:], f"{w} appears after dash-flow"
+
+
+def test_pending_notice_in_month_section():
+    src = _dash()
+    mpos, fpos = _sections(src)
+    n = src.index("notice warn")
+    assert mpos < n < fpos, (mpos, n, fpos)
+
+
+def test_flow_section_content_order():
+    src = _dash()
+    _, fpos = _sections(src)
+    pos = fpos
+    for w in ("월별 수입·지출·저축 추이", "Segmented", "<h2>저축률</h2>", "연간 요약"):
+        assert w in src[pos:], f"{w} not found after previous item in flow section"
+        pos = src.index(w, pos)
+
+
+def test_period_options_kept():
+    src = _dash()
+    assert '"최근 6개월"' in src
+    assert '"최근 12개월"' in src
+
+
+def test_month_band_plugin_defined():
+    src = _dash()
+    assert re.search(r"^const\s+monthBand\b", src, re.M), "top-level const monthBand missing"
+    band = _month_band_def(src)
+    assert re.search(r"id\s*:\s*[\"'`]monthBand[\"'`]", band), band[:200]
+    assert "beforeDatasetsDraw" in band
+    assert "rgba(36, 89, 214, 0.08)" in band
+
+
+def test_month_band_guards_negative_index():
+    band = _month_band_def(_dash())
+    assert "index" in band
+    assert re.search(r"index\s*(<|>=?)\s*0", band) or re.search(r"<\s*0", band), band[:300]
+
+
+def test_chart_signatures_take_month():
+    src = _dash()
+    assert re.search(r"function\s+TrendChart\s*\(\s*\{\s*data\s*,\s*month\s*\}\s*\)", src)
+    assert re.search(r"function\s+SavingsChart\s*\(\s*\{\s*data\s*,\s*month\s*\}\s*\)", src)
+
+
+@pytest.mark.parametrize("name", ("TrendChart", "SavingsChart"))
+def test_chart_body_selects_month_index(name):
+    body = _fn_body(_dash(), name)
+    assert "findIndex" in body, name
+    assert re.search(r"\bd\s*\.\s*month\s*===\s*month\b", body), name
+    assert "monthBand" in body, name
+    assert re.search(r"monthBand\s*:\s*\{\s*index\s*:", body), name
+
+
+def test_savings_chart_plugins_include_rate_labels_and_band():
+    body = _savings()
+    assert (re.search(r"plugins\s*:\s*\[[^\]]*rateLabels[^\]]*monthBand", body)
+            or re.search(r"plugins\s*:\s*\[[^\]]*monthBand[^\]]*rateLabels", body)), body[-600:]
+
+
+def test_trend_chart_plugins_include_band():
+    assert re.search(r"plugins\s*:\s*\[[^\]]*monthBand", _trend())
+
+
+def test_chart_call_sites_pass_month():
+    src = _dash()
+    for name in ("TrendChart", "SavingsChart"):
+        pat = (r"<\$\{" + name + r"\}\s+data\s*=\s*\$\{\s*trend\.data\s*\}\s+month\s*=\s*\$\{\s*month\s*\}\s*/>")
+        assert re.search(pat, src), name
+
+
+def test_css_section_rules():
+    css = CSS.read_text(encoding="utf-8")
+    sec = _css_rule(css, ".dash-section")
+    assert sec is not None, ".dash-section rule missing"
+    assert "margin-bottom" in sec
+    title = _css_rule(css, ".section-title")
+    assert title is not None, ".section-title rule missing"
+    assert "font-size" in title
+    assert "var(--ink-2)" in title
+
+
+def test_css_responsive_grid_kept():
+    css = CSS.read_text(encoding="utf-8")
+    m = re.search(r"@media\s*\(\s*max-width:\s*1100px\s*\)\s*\{(.*?)\}\s*\}", css, re.S)
+    assert m, "@media (max-width: 1100px) missing"
+    assert "grid.c2" in m.group(1)
+    assert "minmax(0, 1fr)" in m.group(1) or "1fr" in m.group(1)
