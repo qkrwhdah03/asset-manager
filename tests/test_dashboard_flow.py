@@ -269,7 +269,7 @@ REQUIRED = ("저축 외 지출", "월별 수입·지출·저축 추이", "막대
             "저축률 = 저축액 ÷ 수입", "연간 저축 외 지출", "월평균 저축 외 지출", "연간 저축률", "living_expense",
             "저축액", "실제 지출")
 FORBIDDEN = ("생활비 지출", 'label: "지출 계획"', "저축액 · 저축률", "y1", "지출 계획 대비", "(수입−지출)",
-             "수입 − 실제 지출", "남은 돈", "leftover")
+             "수입 − 실제 지출", "남은 돈")
 
 
 @pytest.mark.parametrize("w", REQUIRED)
@@ -450,12 +450,13 @@ def test_sections_present_once_and_ordered():
 
 
 def test_section_headings():
+    # loop 2026-10-24-004: the month heading stays; the "흐름" heading is gone
     src = _dash()
     assert '<h2 class="section-title">${monthLabel(month)}</h2>' in src
-    assert '<h2 class="section-title">흐름</h2>' in src
+    assert "흐름" not in src
+    assert src.count('class="section-title"') == 1, src.count('class="section-title"')
     mpos, fpos = _sections(src)
     assert mpos < src.index('<h2 class="section-title">${monthLabel(month)}</h2>') < fpos
-    assert src.index('<h2 class="section-title">흐름</h2>') > fpos
 
 
 def test_month_label_template_once():
@@ -562,3 +563,245 @@ def test_css_responsive_grid_kept():
     assert m, "@media (max-width: 1100px) missing"
     assert "grid.c2" in m.group(1)
     assert "minmax(0, 1fr)" in m.group(1) or "1fr" in m.group(1)
+
+
+# ── loop 2026-10-24-004: leftover card, boxed sections without the "flow" heading ──
+
+PREV = "2026-07"
+LEFT_LABEL = '<div class="label">잔여액</div>'
+LEFT_TITLE = "수입에서 실제 지출을 뺀 금액. 월말 정산하면 0원이 됩니다."
+CARD_LABELS = ("수입", "저축 외 지출", "저축액", "잔여액")
+
+
+def _is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def test_summary_has_leftover_keys_int(conn):
+    _base_month(conn, PREV)
+    _rec(conn, "income", "급여", 2_000_000)
+    _rec(conn, "expense", "식비", 400_000)
+    s = stats.month_summary(conn, M)
+    assert "leftover" in s and "prev_leftover" in s
+    assert _is_int(s["leftover"]), repr(s["leftover"])
+    assert _is_int(s["prev_leftover"]), repr(s["prev_leftover"])
+    assert s["leftover"] == s["income"] - s["expense"] == 1_600_000
+    assert s["prev_leftover"] == s["prev_income"] - s["prev_expense"] == 200_000
+
+
+def test_summary_leftover_before_settle(conn):
+    _base_month(conn)
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == 200_000
+    assert s["living_expense"] + s["savings"] + s["leftover"] == s["income"]
+
+
+def test_summary_leftover_settled_to_savings(conn):
+    _base_month(conn)
+    budget.settle(conn, M, cat_id(conn, SAV))
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == 0
+    assert s["living_expense"] + s["savings"] + s["leftover"] == s["income"]
+
+
+def test_summary_leftover_settled_to_non_savings(conn):
+    _base_month(conn)
+    budget.settle(conn, M, cat_id(conn, "기타"))
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == 0
+    assert s["living_expense"] + s["savings"] + s["leftover"] == s["income"]
+
+
+def test_summary_leftover_negative_when_overspent(conn):
+    _rec(conn, "income", "급여", 300_000)
+    _rec(conn, "expense", "식비", 500_000)
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == -200_000
+
+
+def test_summary_leftover_zero_income_expense_only(conn):
+    _rec(conn, "expense", "식비", 300_000)
+    _rec(conn, "expense", SAV, 200_000)
+    s = stats.month_summary(conn, M)
+    assert s["income"] == 0
+    assert s["leftover"] == -500_000
+
+
+def test_summary_empty_month_leftover_zero(conn):
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == 0
+    assert s["prev_leftover"] == 0
+
+
+def test_summary_prev_leftover_zero_without_prev_records(conn):
+    _base_month(conn)
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == 200_000
+    assert s["prev_leftover"] == 0
+
+
+def test_summary_prev_leftover_across_year_boundary(conn):
+    _rec(conn, "income", "급여", 900_000, "2025-12")
+    _rec(conn, "expense", "식비", 650_000, "2025-12")
+    _base_month(conn, "2026-01")
+    s = stats.month_summary(conn, "2026-01")
+    assert s["leftover"] == 200_000
+    assert s["prev_leftover"] == 250_000
+
+
+def test_summary_leftover_settled_then_changed(conn):
+    _base_month(conn)
+    budget.settle(conn, M, cat_id(conn, SAV))
+    _rec(conn, "income", "급여", 100_000)
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == 100_000 == s["income"] - s["expense"]
+    _rec(conn, "expense", "식비", 250_000)
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == -150_000 == s["income"] - s["expense"]
+
+
+def test_summary_leftover_without_savings_categories(conn):
+    categories.update_category(conn, cat_id(conn, SAV), {"is_savings": False})
+    _base_month(conn)
+    s = stats.month_summary(conn, M)
+    assert s["savings"] == 0
+    assert s["leftover"] == s["income"] - s["expense"] == 200_000
+
+
+def test_summary_leftover_matches_trend_budget(conn):
+    _base_month(conn, PREV)
+    _rec(conn, "income", "급여", 1_500_000)
+    _rec(conn, "expense", "식비", 900_000)
+    s = stats.month_summary(conn, M)
+    assert s["leftover"] == stats.trend(conn, M, M)[0]["leftover"]
+    assert s["prev_leftover"] == stats.trend(conn, PREV, PREV)[0]["leftover"]
+
+
+def test_summary_leftover_matches_trend_cash(conn):
+    _rec(conn, "income", "급여", 1_000_000, PREV, txn_date="2026-08-05")
+    _rec(conn, "expense", "식비", 120_000, PREV, txn_date="2026-07-10")
+    _rec(conn, "income", "급여", 800_000, M, txn_date="2026-09-05")
+    _rec(conn, "expense", SAV, 300_000, M, txn_date="2026-08-02")
+    _rec(conn, "expense", "식비", 100_000, M, txn_date="2026-08-05", settle_date="2026-10-15")
+    for month, prev in ((M, PREV), ("2026-09", M)):
+        s = stats.month_summary(conn, month, basis="cash")
+        assert s["leftover"] == stats.trend(conn, month, month, "cash")[0]["leftover"], month
+        assert s["prev_leftover"] == stats.trend(conn, prev, prev, "cash")[0]["leftover"], month
+        assert s["leftover"] == s["income"] - s["expense"], month
+
+
+def test_summary_existing_keys_kept_with_leftover(conn):
+    _base_month(conn, PREV)
+    _base_month(conn)
+    s = stats.month_summary(conn, M)
+    for k in ("income", "expense", "plan", "savings", "savings_rate", "prev_income", "prev_expense", "prev_savings",
+              "plan_diff", "remaining_budget", "over_count", "pending_income", "basis", "basis_label", "month",
+              "living_expense", "prev_living_expense", "savings_category_count", "leftover", "prev_leftover"):
+        assert k in s, k
+
+
+def test_api_summary_leftover(client):
+    _api_records(client, [("income", "급여", 1_000_000, {}), ("expense", "식비", 300_000, {}),
+                          ("expense", SAV, 500_000, {})])
+    r = client.get("/api/stats/summary", params={"month": M})
+    assert r.status_code == 200, r.text
+    s = r.json()
+    assert "leftover" in s and "prev_leftover" in s
+    assert s["leftover"] == 200_000 == s["income"] - s["expense"]
+    assert s["prev_leftover"] == 0
+
+
+def test_api_summary_leftover_negative(client):
+    _api_records(client, [("income", "급여", 300_000, {}), ("expense", "식비", 500_000, {})])
+    s = client.get("/api/stats/summary", params={"month": M}).json()
+    assert s["leftover"] == -200_000
+
+
+# static: dashboard.js
+
+def test_leftover_card_label_once_and_placed():
+    src = _dash()
+    assert src.count(LEFT_LABEL) == 1, src.count(LEFT_LABEL)
+    _, fpos = _sections(src)
+    lpos = src.index(LEFT_LABEL)
+    assert 'class="cards"' in src
+    assert src.index('class="cards"') < lpos
+    assert src.index('<div class="label">저축액</div>') < lpos < fpos
+
+
+def test_card_label_order():
+    src = _dash()
+    poss = []
+    for w in CARD_LABELS:
+        tag = f'<div class="label">{w}</div>'
+        assert tag in src, tag
+        poss.append(src.index(tag))
+    assert poss == sorted(poss), dict(zip(CARD_LABELS, poss))
+
+
+def _leftover_card(src):
+    i = src.index(LEFT_LABEL)
+    return src[max(0, i - 300): i + 400]
+
+
+@pytest.mark.parametrize("w", ("card clickable", "goCash()", "won(s.leftover)", "s.prev_leftover",
+                               '"warn"', '"neg"', LEFT_TITLE))
+def test_leftover_card_fragment(w):
+    src = _dash()
+    assert LEFT_LABEL in src, "잔여액 card missing"
+    assert w in _leftover_card(src), w
+
+
+def test_leftover_value_class_expression():
+    pat = r's\.leftover\s*>\s*0\s*\?\s*"warn"\s*:\s*s\.leftover\s*<\s*0\s*\?\s*"neg"'
+    assert re.search(pat, _dash())
+
+
+@pytest.mark.parametrize("name", ("TrendChart", "SavingsChart"))
+def test_leftover_not_in_charts(name):
+    assert "leftover" not in _fn_body(_dash(), name), name
+
+
+def test_leftover_only_before_flow_section():
+    src = _dash()
+    _, fpos = _sections(src)
+    hits = [m.start() for m in re.finditer("leftover", src)]
+    assert len(hits) >= 2, hits
+    assert all(h < fpos for h in hits), (hits, fpos)
+
+
+def test_sections_boxed_single_title_no_flow_word():
+    src = _dash()
+    mpos, fpos = _sections(src)
+    assert mpos < fpos
+    assert src.count('class="section-title"') == 1
+    assert '<h2 class="section-title">${monthLabel(month)}</h2>' in src
+    assert "흐름" not in src
+
+
+# static: app.css
+
+def test_css_dash_section_boxed():
+    sec = _css_rule(CSS.read_text(encoding="utf-8"), ".dash-section")
+    assert sec is not None, ".dash-section rule missing"
+    for w in ("margin-bottom", "background", "border", "var(--line-2)"):
+        assert w in sec, w
+
+
+def test_css_dash_month_accent():
+    rule = _css_rule(CSS.read_text(encoding="utf-8"), ".dash-month")
+    assert rule is not None, ".dash-month rule missing"
+    assert "var(--accent-soft)" in rule
+
+
+def test_css_section_title_size_and_color():
+    rule = _css_rule(CSS.read_text(encoding="utf-8"), ".section-title")
+    assert rule is not None, ".section-title rule missing"
+    assert re.search(r"font-size\s*:\s*15px", rule), rule
+    assert "var(--ink-2)" in rule
+
+
+def test_css_card_value_warn():
+    rule = _css_rule(CSS.read_text(encoding="utf-8"), ".card .value.warn")
+    assert rule is not None, ".card .value.warn rule missing"
+    assert "var(--warn)" in rule

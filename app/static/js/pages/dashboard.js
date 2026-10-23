@@ -42,6 +42,10 @@ export function DashboardPage({ params }) {
           <div class="value ${s ? cls(s.savings) : ""}">${s ? won(s.savings) : "–"}</div>
           <div class="sub">${!s ? "" : s.savings_category_count === 0 ? "설정 > 항목에서 저축 항목을 지정하세요"
             : `저축률 ${pct(s.savings_rate)} · 전월 ${won(s.prev_savings)}`}</div></div>
+        <div class="card clickable" title="수입에서 실제 지출을 뺀 금액. 월말 정산하면 0원이 됩니다." onClick=${() => goCash()}>
+          <div class="label">잔여액</div>
+          <div class="value ${!s ? "" : s.leftover > 0 ? "warn" : s.leftover < 0 ? "neg" : ""}">${s ? won(s.leftover) : "–"}</div>
+          <div class="sub">${s ? `전월 ${won(s.prev_leftover)}` : ""}</div></div>
       </div>
       ${s && s.pending_income.count > 0 && html`<div class="notice warn">이 달 소득 중 아직 입금일이 없는(미입금) 기록이 ${s.pending_income.count}건, ${won(s.pending_income.total)} 있습니다. 돈이 들어오면 월 예산에서 입금일을 입력하세요.</div>`}
 
@@ -62,7 +66,6 @@ export function DashboardPage({ params }) {
     </section>
 
     <section class="dash-section dash-flow">
-      <h2 class="section-title">흐름</h2>
       <div class="panel">
         <div class="panel-head"><h2>월별 수입·지출·저축 추이</h2><span class="hint">막대는 월별 수입·저축·저축 외 지출이고, 클릭하면 해당 월로 이동합니다.</span>
           <div class="spacer"></div>

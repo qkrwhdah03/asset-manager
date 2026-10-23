@@ -195,6 +195,7 @@ def month_summary(conn, month: str, basis: str = "budget") -> dict:
         **{k: t[k] for k in ("income", "expense", "plan", "savings", "savings_rate", "living_expense")},
         "prev_income": prev["income"], "prev_expense": prev["expense"], "prev_savings": prev["savings"],
         "prev_living_expense": prev["living_expense"],
+        "leftover": t["leftover"], "prev_leftover": prev["leftover"],
         "savings_category_count": len(savings_category_ids(conn)),
         "plan_diff": pva["total_diff"] if pva["total_plan"] else None,
         "remaining_budget": pva["remaining_budget"] if pva["total_plan"] else None,
