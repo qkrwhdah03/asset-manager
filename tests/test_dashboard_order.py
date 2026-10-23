@@ -364,8 +364,11 @@ def test_handles_in_sections():
 def test_handle_span_markup_and_events():
     src = _dash()
     for w in ('class="handle"', 'draggable="true"', 'title="끌어서 순서 변경"', "⠿",
-              "onDragStart", "onDragEnd", "onDragOver", "onDrop"):
+              "onDragStart", "onDragEnd"):
         assert w in src, w
+    # drop handling moved to lib.js startDragDrop (loop 2026-10-24-007)
+    assert "onDragOver=" not in src
+    assert "onDrop=" not in src
 
 
 def test_month_section_bar_literal():

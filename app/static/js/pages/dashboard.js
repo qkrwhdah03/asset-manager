@@ -1,7 +1,7 @@
 import {
   html, useApi, won, pct, cls, monthLabel, thisMonth, addMonths, MonthPicker, Segmented, ChartView, wonAxis,
   PALETTE, Empty, ErrorBox, navigate, setParams, monthShort, yearLabel, useApp, useState, api, toastErr,
-  startDragAutoScroll, stopDragAutoScroll,
+  startDragAutoScroll, stopDragAutoScroll, startDragDrop, stopDragDrop,
 } from "../lib.js";
 
 // Dashboard section keys in default (source) order (F-041).
@@ -52,14 +52,14 @@ export function DashboardPage({ params }) {
   const order = pending || parseDashOrder(settings?.dashboard_order);
 
   const handle = (key) => html`<span class="handle" draggable="true" title="끌어서 순서 변경"
-    onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); setDrag(key); startDragAutoScroll(e.currentTarget); }}
-    onDragEnd=${() => { setDrag(null); setHint(null); stopDragAutoScroll(); }}>⠿</span>`;
+    onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); setDrag(key); startDragAutoScroll(e.currentTarget);
+      const area = e.currentTarget.closest(".main") || document.documentElement, page = e.currentTarget.closest(".page");
+      startDragDrop({ area, drag: key, keys: order, items: () => [...page.querySelectorAll(".dash-slot")], onHint: setHint, onDrop: (t) => commitMove(key, t) }); }}
+    onDragEnd=${() => { setDrag(null); setHint(null); stopDragAutoScroll(); stopDragDrop(); }}>⠿</span>`;
 
-  const dropOn = (k) => {
-    const from = drag, pos = hint && hint.key === k ? hint.pos : null;
+  const commitMove = (from, t) => {
     setDrag(null); setHint(null);
-    if (!from) return;
-    const next = moveSection(order, from, k, pos);
+    const next = moveSection(order, from, t.key, t.pos);
     if (next.join(",") === order.join(",")) return;
     setPending(next);
     api("/settings", { method: "PUT", body: { dashboard_order: next.join(",") } })
@@ -138,10 +138,7 @@ export function DashboardPage({ params }) {
       <${MonthPicker} value=${month} onChange=${(m) => setParams({ month: m })} />
     </div>
     ${order.map(k => html`<div class=${"dash-slot" + (hint && hint.key === k ? (hint.pos === "before" ? " drop-before" : " drop-after") : "") + (drag === k ? " dragging" : "")}
-      key=${k}
-      onDragOver=${(e) => { if (!drag || drag === k) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect();
-        const pos = e.clientY < r.top + r.height / 2 ? "before" : "after"; if (!hint || hint.key !== k || hint.pos !== pos) setHint({ key: k, pos }); }}
-      onDrop=${(e) => { e.preventDefault(); dropOn(k); }}>
+      key=${k}>
       ${k === "month" ? monthSection : flowSection}
     </div>`)}
   </div>`;

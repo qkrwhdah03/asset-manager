@@ -453,4 +453,4 @@ def test_settings_imports_and_handle_calls():
     names = _names(lib_imps[0])
     assert "startDragAutoScroll" in names and "stopDragAutoScroll" in names, names
     _assert_drag_calls(src, "settings.js")
-    assert "/categories/${drag}/reorder" in src
+    assert re.search(r"/categories/\$\{\w+\}/reorder", src)

@@ -1,7 +1,7 @@
 import {
   html, useState, useEffect, useApi, api, useApp, won, Empty, toast, toastErr, setParams, exportFile, pickFile, confirmBox, nextColor,
   monthLabel, dateLabel, dateTimeLabel, today, thisMonth,
-  startDragAutoScroll, stopDragAutoScroll,
+  startDragAutoScroll, stopDragAutoScroll, startDragDrop, stopDragDrop,
 } from "../lib.js";
 import { MoveDialog } from "./move.js";
 
@@ -61,8 +61,7 @@ function CategoryList({ kind }) {
   const { categories, reloadCategories } = useApp();
   const list = categories.filter(c => c.kind === kind);
   const [name, setName] = useState("");
-  const [drag, setDrag] = useState(null);
-  const [hint, setHint] = useState(null);   // { id, pos }
+  const [hint, setHint] = useState(null);   // { key, pos }
   const [sel, setSel] = useState(new Set());
   const [moving, setMoving] = useState(null);   // 기록을 옮길 항목
   const toggleSel = (id) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
@@ -99,12 +98,11 @@ function CategoryList({ kind }) {
     if (!await confirmBox(`${picked.length}개 항목을 삭제할까요?\n${picked.map(c => c.name).join(", ")}${linkedNote(n, true)}`)) return;
     if (await run(() => api("/categories/bulk-delete", { method: "POST", body: { ids: [...sel] } }))) setSel(new Set());
   };
-  const drop = (c) => {
-    if (!drag || !hint || drag === c.id) return;
-    const i = list.findIndex(x => x.id === c.id);
-    const before = hint.pos === "before" ? c.id : list[i + 1]?.id ?? null;
-    run(() => api(`/categories/${drag}/reorder`, { method: "POST", body: { before_id: before === drag ? null : before } }));
-    setDrag(null); setHint(null);
+  const commit = (from, t) => {
+    const i = list.findIndex(x => x.id === t.key);
+    const before = t.pos === "before" ? t.key : (list[i + 1]?.id ?? null);
+    run(() => api(`/categories/${from}/reorder`, { method: "POST", body: { before_id: before === from ? null : before } }));
+    setHint(null);
   };
 
   return html`<div class="panel">
@@ -115,14 +113,13 @@ function CategoryList({ kind }) {
         <button class="btn sm danger" onClick=${removeSelected}>선택 삭제</button>
         <button class="btn sm" onClick=${() => setSel(new Set())}>선택 해제</button></span>`}</div>
     <div class="panel-body flush"><table class="t catlist"><tbody>
-      ${list.map(c => html`<tr key=${c.id} class=${hint && hint.id === c.id ? `drop-${hint.pos}` : ""}
-          onDragOver=${(e) => { if (!drag || drag === c.id) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect();
-            const pos = e.clientY < r.top + r.height / 2 ? "before" : "after"; if (!hint || hint.id !== c.id || hint.pos !== pos) setHint({ id: c.id, pos }); }}
-          onDrop=${(e) => { e.preventDefault(); drop(c); }}>
+      ${list.map(c => html`<tr key=${c.id} class=${hint && hint.key === c.id ? `drop-${hint.pos}` : ""}>
         <td style="width:28px"><input type="checkbox" class="selbox ${sel.size ? "on" : ""}" checked=${sel.has(c.id)} onChange=${() => toggleSel(c.id)} title="선택" /></td>
         <td style="width:24px"><span class="handle" draggable="true" title="끌어서 순서 변경"
-          onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(c.id)); setDrag(c.id); startDragAutoScroll(e.currentTarget); }}
-          onDragEnd=${() => { setDrag(null); setHint(null); stopDragAutoScroll(); }}>⠿</span></td>
+          onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(c.id)); startDragAutoScroll(e.currentTarget);
+            const area = e.currentTarget.closest(".main") || document.documentElement, tbody = e.currentTarget.closest("tbody");
+            startDragDrop({ area, drag: c.id, keys: list.map(x => x.id), items: () => [...tbody.querySelectorAll(":scope > tr")], onHint: setHint, onDrop: (t) => commit(c.id, t) }); }}
+          onDragEnd=${() => { setHint(null); stopDragAutoScroll(); stopDragDrop(); }}>⠿</span></td>
         <td class="nowrap"><input type="color" class="swatch" value=${c.color || "#94a3b8"} title="색 변경" onChange=${(e) => recolor(c, e.target.value)} />
           <input type="text" class="cell" value=${c.name} onBlur=${(e) => rename(c, e.target.value)} onKeyDown=${(e) => e.key === "Enter" && e.target.blur()} /></td>
         <td class="memocell"><input type="text" class="cell memo" value=${c.memo || ""} placeholder="메모"

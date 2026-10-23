@@ -414,6 +414,64 @@ export function stopDragAutoScroll() {
   document.removeEventListener("drop", state.onDrop, true);
 }
 
+// ───────── Drag drop target by pointer height ─────────
+// Where to drop `drag` given pointer Y and item rects (same order as keys); null when the order would not change.
+export function dropTarget(y, keys, rects, drag) {
+  if (typeof y !== "number" || !Number.isFinite(y)) return null;
+  if (!Array.isArray(keys) || !Array.isArray(rects) || keys.length !== rects.length || keys.length === 0) return null;
+  const di = keys.indexOf(drag);
+  if (di < 0) return null;
+  const fin = (v) => typeof v === "number" && Number.isFinite(v);
+  if (rects.some((r) => !r || !fin(r.top) || !fin(r.bottom))) return null;
+  let ins = 0;
+  for (const r of rects) if (y >= (r.top + r.bottom) / 2) ins++;
+  if (ins === di || ins === di + 1) return null;
+  return ins < keys.length ? { key: keys[ins], pos: "before" } : { key: keys[keys.length - 1], pos: "after" };
+}
+
+let dragDrop = null;
+
+// Accept dragover/drop anywhere inside `area`, choosing the slot from the pointer Y.
+export function startDragDrop({ area, drag, keys, items, onHint, onDrop }) {
+  stopDragDrop();
+  const root = area || document.documentElement;
+  const state = { last: null };
+  const compute = (e) => {
+    if (!root.contains(e.target)) return null;
+    const rects = items().map((el) => el.getBoundingClientRect());
+    return dropTarget(e.clientY, keys, rects, drag);
+  };
+  state.onOver = (e) => {
+    const t = compute(e);
+    if (t) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    }
+    const l = state.last;
+    const changed = (t === null) !== (l === null) || (t && l && (t.key !== l.key || t.pos !== l.pos));
+    if (changed) { state.last = t; onHint(t); }
+  };
+  state.onDrop = (e) => {
+    if (!root.contains(e.target)) return;
+    e.preventDefault();
+    const t = compute(e);
+    stopDragDrop();
+    if (t) onDrop(t);
+  };
+  dragDrop = state;
+  document.addEventListener("dragover", state.onOver, true);
+  document.addEventListener("drop", state.onDrop, true);
+}
+
+// Idempotent; safe to call before any start. Never calls onHint.
+export function stopDragDrop() {
+  const state = dragDrop;
+  if (!state) return;
+  dragDrop = null;
+  document.removeEventListener("dragover", state.onOver, true);
+  document.removeEventListener("drop", state.onDrop, true);
+}
+
 // ───────── 라우팅 ─────────
 export function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
