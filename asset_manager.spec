@@ -21,5 +21,6 @@ exe = EXE(
     name="AssetManager",
     console=False,
     upx=False,
+    icon="app/static/favicon.ico",
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="AssetManager")

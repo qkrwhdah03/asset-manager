@@ -33,3 +33,8 @@ def static_dir() -> Path:
     # PyInstaller 번들 실행 시에는 _MEIPASS 아래에 정적 파일이 풀린다.
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
     return base / "app" / "static"
+
+
+def icon_file() -> Path:
+    # App icon used for the desktop window (resolved under _MEIPASS when bundled).
+    return static_dir() / "favicon.ico"

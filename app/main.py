@@ -41,6 +41,11 @@ def wait_ready(url: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def window_title() -> str:
+    """Title shown in the OS window title bar."""
+    return f"v{__version__}"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="개인 자산 관리")
     ap.add_argument("--port", type=int, default=0)
@@ -77,8 +82,8 @@ def main(argv=None) -> int:
         try:
             import webview  # pywebview
             webview.settings["ALLOW_DOWNLOADS"] = True
-            webview.create_window(f"개인 자산 관리 v{__version__}", url, width=1440, height=920, min_size=(1024, 680))
-            webview.start()
+            webview.create_window(window_title(), url, width=1440, height=920, min_size=(1024, 680))
+            webview.start(icon=str(config.icon_file()))
             server.should_exit = True
             t.join(timeout=5)
             return 0
