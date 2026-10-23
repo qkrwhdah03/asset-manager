@@ -265,10 +265,11 @@ def test_api_annual_months_leftover(client):
 
 # ── static checks: dashboard.js / app.css ──
 
-REQUIRED = ("저축 외 지출", "월별 수입·지출·저축 추이", "남은 돈", "저축률 = 저축액 ÷ 수입", "연간 저축 외 지출",
-            "월평균 저축 외 지출", "연간 저축률", "leftover", "living_expense", "저축액", "실제 지출")
+REQUIRED = ("저축 외 지출", "월별 수입·지출·저축 추이", "막대는 월별 수입·저축·저축 외 지출이고, 클릭하면 해당 월로 이동합니다.",
+            "저축률 = 저축액 ÷ 수입", "연간 저축 외 지출", "월평균 저축 외 지출", "연간 저축률", "living_expense",
+            "저축액", "실제 지출")
 FORBIDDEN = ("생활비 지출", 'label: "지출 계획"', "저축액 · 저축률", "y1", "지출 계획 대비", "(수입−지출)",
-             "수입 − 실제 지출")
+             "수입 − 실제 지출", "남은 돈", "leftover")
 
 
 @pytest.mark.parametrize("w", REQUIRED)
@@ -311,3 +312,104 @@ def test_dashboard_js_module_syntax():
     with open(DASH, "rb") as f:
         r = subprocess.run([NODE, "--check", "--input-type=module"], stdin=f, capture_output=True)
     assert r.returncode == 0, r.stderr.decode("utf-8", "replace")[-500:]
+
+
+# ── loop 2026-10-24-002: grouped trend bars, month in plan panel title, lined top-items table ──
+
+Q = "[\"'`]"
+
+
+def _fn_body(src, name):
+    """Slice `function <name>` up to the next `function ` definition. Fails (never skips) when missing."""
+    m = re.search(r"function\s+" + re.escape(name) + r"\b", src)
+    assert m, f"function {name} not found in dashboard.js"
+    nxt = re.search(r"\bfunction\s+[A-Za-z_$]", src[m.end():])
+    return src[m.start(): m.end() + nxt.start()] if nxt else src[m.start():]
+
+
+def _trend():
+    return _fn_body(_dash(), "TrendChart")
+
+
+def _css_rule(css, selector):
+    """Return the declaration block of the first rule whose selector list contains `selector` exactly."""
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        sels = [x.strip() for x in m.group(1).split(",")]
+        if selector in sels:
+            return m.group(2)
+    return None
+
+
+def test_dashboard_no_stacking():
+    src = _dash()
+    assert "stacked" not in src
+    assert "stack:" not in src
+    assert not re.search(r"\bstack\s*:", src)
+
+
+def test_dashboard_no_line_dataset():
+    assert not re.search(r"type\s*:\s*" + Q + "line" + Q, _dash())
+
+
+def _label_pos(body, text):
+    m = re.search(r"label\s*:\s*" + Q + re.escape(text) + Q, body)
+    assert m, f'label "{text}" not found in TrendChart'
+    return m.start()
+
+
+def test_trend_dataset_label_order():
+    body = _trend()
+    a = _label_pos(body, "수입")
+    b = _label_pos(body, "저축")
+    c = _label_pos(body, "저축 외 지출")
+    assert a < b < c, (a, b, c)
+
+
+def test_trend_dataset_data_fields():
+    body = _trend()
+    for f in ("income", "savings", "living_expense"):
+        assert re.search(r"\bd\s*\.\s*" + f + r"\b", body), f"d.{f}"
+
+
+@pytest.mark.parametrize("color", ("#2459d6", "#19a979", "#e8743b"))
+def test_trend_dataset_colors(color):
+    assert color.lower() in _trend().lower(), color
+
+
+def test_trend_tooltip_filter_null_nan():
+    body = _trend()
+    assert "filter" in body
+    assert re.search(r"!==?\s*null", body)
+    assert "isNaN" in body
+
+
+def test_trend_keeps_index_mode_and_navigate():
+    body = _trend()
+    assert re.search(r"mode\s*:\s*" + Q + "index" + Q, body)
+    assert re.search(r"navigate\(\s*" + Q + "cashflow" + Q, body)
+
+
+def test_plan_panel_title_has_month():
+    src = _dash()
+    assert "${monthLabel(month)} 항목별 계획 대비 실제" in src
+    assert "<h2>항목별 계획 대비 실제</h2>" not in src
+    assert "${monthLabel(month)} 항목별 지출 비중" in src
+
+
+def test_annual_top_items_table_lined():
+    src = _dash()
+    assert '<table class="t lined">' in src
+    assert 'class="kv boxed"' in src
+
+
+def test_css_lined_table_rules():
+    css = CSS.read_text(encoding="utf-8")
+    td = _css_rule(css, "table.t.lined td")
+    assert td is not None, "table.t.lined td rule missing"
+    assert re.search(r"var\(--line\)", td), td
+    th = _css_rule(css, "table.t.lined thead th")
+    assert th is not None, "table.t.lined thead th rule missing"
+    assert "border-bottom" in th
+    base = _css_rule(css, "table.t td")
+    assert base is not None and "var(--line-2)" in base
+    assert _css_rule(css, "table.t th") == base

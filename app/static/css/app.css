@@ -88,6 +88,8 @@ table.t tfoot td { font-weight: 700; background: #fafbfc; border-top: 1px solid 
 table.t td.actions { width: 1%; white-space: nowrap; text-align: right; }
 table.t tr.editing td { background: #f4f7ff; }
 table.t input, table.t select { width: 100%; }
+table.t.lined td { border-bottom: 1px solid var(--line); }
+table.t.lined thead th { border-bottom: 1px solid #cfd4dc; }
 .table-wrap { overflow: auto; max-height: 560px; }
 
 input[type=text], input[type=number], input[type=date], input[type=month], input[type=search], input[type=password], select, textarea {

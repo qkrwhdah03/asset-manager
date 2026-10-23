@@ -44,7 +44,7 @@ export function DashboardPage({ params }) {
     ${s && s.pending_income.count > 0 && html`<div class="notice warn">이 달 소득 중 아직 입금일이 없는(미입금) 기록이 ${s.pending_income.count}건, ${won(s.pending_income.total)} 있습니다. 돈이 들어오면 월 예산에서 입금일을 입력하세요.</div>`}
 
     <div class="panel">
-      <div class="panel-head"><h2>월별 수입·지출·저축 추이</h2><span class="hint">막대는 수입의 쓰임(저축 외 지출·저축·남은 돈)이고, 클릭하면 해당 월로 이동합니다.</span>
+      <div class="panel-head"><h2>월별 수입·지출·저축 추이</h2><span class="hint">막대는 월별 수입·저축·저축 외 지출이고, 클릭하면 해당 월로 이동합니다.</span>
         <div class="spacer"></div>
         <${Segmented} value=${period} onChange=${(p) => setParams({ period: p })} options=${[["6", "최근 6개월"], ["12", "최근 12개월"], ["year", yearLabel(year)]]} /></div>
       <div class="panel-body">${trend.data ? html`<${TrendChart} data=${trend.data} />` : trend.error ? html`<${ErrorBox} error=${trend.error} />` : ""}</div>
@@ -65,7 +65,7 @@ export function DashboardPage({ params }) {
 
     <div class="grid c2">
       <div class="panel">
-        <div class="panel-head"><h2>항목별 계획 대비 실제</h2><span class="hint">항목 클릭 → 계획 대비 실제 표</span></div>
+        <div class="panel-head"><h2>${monthLabel(month)} 항목별 계획 대비 실제</h2><span class="hint">항목 클릭 → 계획 대비 실제 표</span></div>
         <div class="panel-body">${pva.data && (pva.data.items.length === 0
           ? html`<${Empty} title="이 달의 지출 계획이 없습니다">월 예산 화면의 지출 표에서 항목별 계획을 입력하세요.<//>`
           : html`<${PlanChart} data=${pva.data} onPick=${() => goCash()} />`)}</div>
@@ -85,18 +85,22 @@ function TrendChart({ data }) {
     data: {
       labels,
       datasets: [
-        // Income line uses its own stack so it is not added onto the stacked bars.
-        { type: "line", label: "수입", data: data.map(d => d.income), borderColor: "#2459d6", backgroundColor: "#2459d6", pointRadius: 3, borderWidth: 2, stack: "income", order: 1 },
-        { label: "저축 외 지출", data: data.map(d => d.living_expense), backgroundColor: "#e8743b", stack: "flow", order: 2 },
-        { label: "저축", data: data.map(d => d.savings), backgroundColor: "#19a979", stack: "flow", order: 2 },
-        { label: "남은 돈", data: data.map(d => d.leftover > 0 ? d.leftover : null), backgroundColor: "#c3c8d1", stack: "flow", order: 2 },
+        // Grouped bars: income, savings and non-savings expense side by side.
+        { label: "수입", data: data.map(d => d.income), backgroundColor: "#2459d6" },
+        { label: "저축", data: data.map(d => d.savings), backgroundColor: "#19a979" },
+        { label: "저축 외 지출", data: data.map(d => d.living_expense), backgroundColor: "#e8743b" },
       ],
     },
     options: {
       interaction: { mode: "index", intersect: false },
-      scales: { x: { stacked: true, grid: { display: false } }, y: { ...wonAxis, stacked: true } },
+      scales: { x: { grid: { display: false } }, y: wonAxis },
       onClick: (_e, els) => { if (els.length) navigate("cashflow", { month: data[els[0].index].month }); },
-      plugins: { tooltip: { callbacks: { title: (items) => monthLabel(data[items[0].dataIndex].month) } } },
+      plugins: {
+        tooltip: {
+          filter: (item) => item.parsed.y != null && !Number.isNaN(item.parsed.y),
+          callbacks: { title: (items) => monthLabel(data[items[0].dataIndex].month) },
+        },
+      },
     },
   };
   const hasAny = data.some(d => d.income || d.expense);
@@ -201,7 +205,7 @@ function AnnualSummary({ d }) {
       <dt>연간 저축률</dt><dd>${pct(d.savings_rate)}</dd>
       <dt>월평균 저축 외 지출</dt><dd>${months.length ? won(d.living_expense / months.length) : "–"} <span class="muted small">(기록 있는 ${months.length}개월)</span></dd>
     </dl>
-    ${d.top_expenses.length > 0 && html`<table class="t">
+    ${d.top_expenses.length > 0 && html`<table class="t lined">
       <thead><tr><th>지출 상위 항목</th><th class="num">금액</th><th class="num">비중</th></tr></thead>
       <tbody>${d.top_expenses.slice(0, 6).map(c => html`<tr><td><span class="dot" style=${c.color ? `background:${c.color}` : ""}></span>${c.category_full_name}</td>
         <td class="num">${won(c.total)}</td><td class="num">${pct(c.share)}</td></tr>`)}</tbody></table>`}
