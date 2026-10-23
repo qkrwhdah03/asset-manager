@@ -1,6 +1,7 @@
 import {
   html, useState, useEffect, useApi, api, useApp, won, Empty, toast, toastErr, setParams, exportFile, pickFile, confirmBox, nextColor,
   monthLabel, dateLabel, dateTimeLabel, today, thisMonth,
+  startDragAutoScroll, stopDragAutoScroll,
 } from "../lib.js";
 import { MoveDialog } from "./move.js";
 
@@ -120,8 +121,8 @@ function CategoryList({ kind }) {
           onDrop=${(e) => { e.preventDefault(); drop(c); }}>
         <td style="width:28px"><input type="checkbox" class="selbox ${sel.size ? "on" : ""}" checked=${sel.has(c.id)} onChange=${() => toggleSel(c.id)} title="선택" /></td>
         <td style="width:24px"><span class="handle" draggable="true" title="끌어서 순서 변경"
-          onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(c.id)); setDrag(c.id); }}
-          onDragEnd=${() => { setDrag(null); setHint(null); }}>⠿</span></td>
+          onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(c.id)); setDrag(c.id); startDragAutoScroll(e.currentTarget); }}
+          onDragEnd=${() => { setDrag(null); setHint(null); stopDragAutoScroll(); }}>⠿</span></td>
         <td class="nowrap"><input type="color" class="swatch" value=${c.color || "#94a3b8"} title="색 변경" onChange=${(e) => recolor(c, e.target.value)} />
           <input type="text" class="cell" value=${c.name} onBlur=${(e) => rename(c, e.target.value)} onKeyDown=${(e) => e.key === "Enter" && e.target.blur()} /></td>
         <td class="memocell"><input type="text" class="cell memo" value=${c.memo || ""} placeholder="메모"

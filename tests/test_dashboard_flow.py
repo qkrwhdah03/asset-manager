@@ -454,9 +454,13 @@ def test_section_headings():
     src = _dash()
     assert '<h2 class="section-title">${monthLabel(month)}</h2>' in src
     assert "흐름" not in src
-    assert src.count('class="section-title"') == 1, src.count('class="section-title"')
+    # loop 2026-10-24-006: the flow section gets its own "기간별 통계" heading
+    assert src.count('class="section-title"') == 2, src.count('class="section-title"')
     mpos, fpos = _sections(src)
     assert mpos < src.index('<h2 class="section-title">${monthLabel(month)}</h2>') < fpos
+    flow_title = '<h2 class="section-title">기간별 통계</h2>'
+    assert flow_title in src
+    assert src.index(flow_title) > fpos
 
 
 def test_month_label_template_once():
@@ -774,7 +778,8 @@ def test_sections_boxed_single_title_no_flow_word():
     src = _dash()
     mpos, fpos = _sections(src)
     assert mpos < fpos
-    assert src.count('class="section-title"') == 1
+    # loop 2026-10-24-006: the flow section now has its own "기간별 통계" heading
+    assert src.count('class="section-title"') == 2
     assert '<h2 class="section-title">${monthLabel(month)}</h2>' in src
     assert "흐름" not in src
 

@@ -1,6 +1,7 @@
 import {
   html, useApi, won, pct, cls, monthLabel, thisMonth, addMonths, MonthPicker, Segmented, ChartView, wonAxis,
   PALETTE, Empty, ErrorBox, navigate, setParams, monthShort, yearLabel, useApp, useState, api, toastErr,
+  startDragAutoScroll, stopDragAutoScroll,
 } from "../lib.js";
 
 // Dashboard section keys in default (source) order (F-041).
@@ -51,8 +52,8 @@ export function DashboardPage({ params }) {
   const order = pending || parseDashOrder(settings?.dashboard_order);
 
   const handle = (key) => html`<span class="handle" draggable="true" title="끌어서 순서 변경"
-    onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); setDrag(key); }}
-    onDragEnd=${() => { setDrag(null); setHint(null); }}>⠿</span>`;
+    onDragStart=${(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); setDrag(key); startDragAutoScroll(e.currentTarget); }}
+    onDragEnd=${() => { setDrag(null); setHint(null); stopDragAutoScroll(); }}>⠿</span>`;
 
   const dropOn = (k) => {
     const from = drag, pos = hint && hint.key === k ? hint.pos : null;
@@ -111,7 +112,7 @@ export function DashboardPage({ params }) {
 
   const flowSection = html`
     <section class="dash-section dash-flow">
-      <div class="section-bar">${handle("flow")}</div>
+      <div class="section-bar">${handle("flow")}<h2 class="section-title">기간별 통계</h2></div>
       <div class="panel">
         <div class="panel-head"><h2>월별 수입·지출·저축 추이</h2><span class="hint">막대는 월별 수입·저축·저축 외 지출이고, 클릭하면 해당 월로 이동합니다.</span>
           <div class="spacer"></div>

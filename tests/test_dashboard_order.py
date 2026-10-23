@@ -373,7 +373,7 @@ def test_month_section_bar_literal():
     lit = '<div class="section-bar">${handle("month")}<h2 class="section-title">${monthLabel(month)}</h2></div>'
     assert lit in src
     assert src.count("${monthLabel(month)}") == 1, src.count("${monthLabel(month)}")
-    assert src.count('class="section-title"') == 1
+    assert src.count('class="section-title"') == 2  # month + flow ("기간별 통계", loop 2026-10-24-006)
     assert "흐름" not in src
 
 

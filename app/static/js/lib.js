@@ -350,6 +350,70 @@ export async function exportFile(path, params = {}) {
   a.remove();
 }
 
+// ───────── Drag auto-scroll (U-19) ─────────
+// Pixels to scroll this frame: <0 up, >0 down, 0 none. Faster nearer the edge; max outside the container.
+export function autoScrollSpeed(y, top, bottom, edge = 60, max = 24) {
+  if (![y, top, bottom].every((v) => typeof v === "number" && Number.isFinite(v))) return 0;
+  const e = Math.min(edge, (bottom - top) / 2);
+  if (!(e > 0)) return 0;
+  if (y < top + e) return -Math.max(1, Math.round(max * Math.min(1, (top + e - y) / e)));
+  if (y > bottom - e) return Math.max(1, Math.round(max * Math.min(1, (y - (bottom - e)) / e)));
+  return 0;
+}
+
+const isRootScroller = (node) => node === document.scrollingElement || node === document.documentElement || node === document.body;
+
+// Nearest ancestor-or-self that actually scrolls vertically, else the document scroller.
+export function scrollParent(el) {
+  for (let node = el; node && !isRootScroller(node); node = node.parentElement) {
+    const oy = getComputedStyle(node).overflowY;
+    if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return node;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+let autoScroll = null;
+
+// Scroll the container near its top/bottom edge while an HTML5 drag is in progress.
+export function startDragAutoScroll(fromEl) {
+  stopDragAutoScroll();
+  const state = { container: scrollParent(fromEl), y: null, frame: null };
+  state.onOver = (e) => { state.y = e.clientY; };
+  state.onLeave = (e) => { if (e.relatedTarget == null) state.y = null; };
+  state.onDrop = () => stopDragAutoScroll();
+  const tick = () => {
+    if (autoScroll !== state) return;
+    state.frame = null;
+    const c = state.container;
+    if (!c || !c.isConnected) { stopDragAutoScroll(); return; }
+    if (state.y !== null) {
+      let top, bottom;
+      if (isRootScroller(c)) { top = 0; bottom = window.innerHeight; }
+      else { const r = c.getBoundingClientRect(); top = r.top; bottom = r.bottom; }
+      const speed = autoScrollSpeed(state.y, top, bottom);
+      if (speed !== 0) c.scrollTop += speed;
+    }
+    if (autoScroll === state) state.frame = requestAnimationFrame(tick);
+  };
+  autoScroll = state;
+  document.addEventListener("dragover", state.onOver, true);
+  document.addEventListener("dragleave", state.onLeave, true);
+  document.addEventListener("drop", state.onDrop, true);
+  state.frame = requestAnimationFrame(tick);
+}
+
+// Idempotent; safe to call before any start.
+export function stopDragAutoScroll() {
+  const state = autoScroll;
+  if (!state) return;
+  autoScroll = null;
+  if (state.frame !== null) cancelAnimationFrame(state.frame);
+  state.frame = null;
+  document.removeEventListener("dragover", state.onOver, true);
+  document.removeEventListener("dragleave", state.onLeave, true);
+  document.removeEventListener("drop", state.onDrop, true);
+}
+
 // ───────── 라우팅 ─────────
 export function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
