@@ -1,4 +1,4 @@
-import { html, render, useState, useEffect, api, Toasts, AppCtx, parseHash, toastErr, useDataChange, setDisplay } from "./lib.js";
+import { html, render, useState, useEffect, api, Toasts, ConfirmHost, AppCtx, parseHash, toastErr, useDataChange, setDisplay } from "./lib.js";
 import { DashboardPage } from "./pages/dashboard.js";
 import { CashflowPage } from "./pages/cashflow.js";
 import { SettingsPage } from "./pages/settings.js";
@@ -49,6 +49,7 @@ function App() {
       <main class="main"><${Page} key=${entry[0]} params=${route.params} /></main>
     </div>
     <${Toasts} />
+    <${ConfirmHost} />
   </${AppCtx.Provider}>`;
 }
 

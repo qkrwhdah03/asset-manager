@@ -84,13 +84,13 @@ function Detail({ ind, onChanged, onEdit }) {
     try {
       const dry = await api(`/import/indicator/${ind.id}`, { method: "POST", raw: buf, params: { dry_run: true } });
       if (!dry.ok) return toast("가져오기 오류:\n" + dry.errors.slice(0, 8).map(e => `${e.row ?? ""}행: ${e.message}`).join("\n"), "err");
-      if (!confirmBox(`${dry.total}개 값을 가져옵니다(같은 날짜는 덮어씀). 계속할까요?`)) return;
+      if (!await confirmBox(`${dry.total}개 값을 가져옵니다(같은 날짜는 덮어씀). 계속할까요?`)) return;
       await api(`/import/indicator/${ind.id}`, { method: "POST", raw: buf, params: { dry_run: false } });
       toast("가져왔습니다.", "ok"); onChanged();
     } catch (e) { toastErr(e); }
   }
   async function remove() {
-    if (!confirmBox(`'${ind.name}' 지표와 모든 값을 삭제할까요?`)) return;
+    if (!await confirmBox(`'${ind.name}' 지표와 모든 값을 삭제할까요?`)) return;
     try { await api(`/indicators/${ind.id}`, { method: "DELETE" }); setParams({ id: "" }); onChanged(); } catch (e) { toastErr(e); }
   }
 

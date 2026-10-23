@@ -117,7 +117,7 @@ function TxnList({ ctx, params }) {
   const kind = params.kind || "";
   const list = useApi("/asset-txns", { account_id: accountId, kind }, [ctx.version]);
   async function del(t) {
-    if (!confirmBox(`${t.date} ${t.kind_label} 기록을 삭제할까요?`)) return;
+    if (!await confirmBox(`${t.date} ${t.kind_label} 기록을 삭제할까요?`)) return;
     try { await api(`/asset-txns/${t.id}`, { method: "DELETE" }); ctx.bump(); } catch (e) { toastErr(e); }
   }
   const rows = list.data || [];
@@ -336,7 +336,7 @@ function AccountsAdmin({ ctx }) {
   const [acc, setAcc] = useState(null);
   const [type, setType] = useState(null);
   async function delAcc(a) {
-    if (!confirmBox(`'${a.name}' 계좌를 삭제할까요? (기록이 있으면 비활성화됩니다)`)) return;
+    if (!await confirmBox(`'${a.name}' 계좌를 삭제할까요? (기록이 있으면 비활성화됩니다)`)) return;
     try { const r = await api(`/accounts/${a.id}`, { method: "DELETE" }); toast(r.action === "deleted" ? "삭제했습니다." : `기록 ${r.txn_count}건이 있어 비활성화했습니다.`, "ok"); ctx.bump(); }
     catch (e) { toastErr(e); }
   }

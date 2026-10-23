@@ -276,3 +276,6 @@ tr:hover .move-x { visibility: visible; }
 /* 설정 > 표시 탭(D-17) */
 .display-settings { max-width: 560px; }
 .display-settings .form-grid { margin-bottom: 10px; }
+/* 확인 창(confirmBox): 다른 모달 위, 토스트 아래 */
+.modal-back.confirm { z-index: 60; }
+.confirm-msg { white-space: pre-wrap; }

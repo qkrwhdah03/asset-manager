@@ -121,7 +121,7 @@ function useSheet(ctx, kind) {
   };
   const toggleSel = (id) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
   const removeIds = async (ids, label) => {
-    if (!ids.length || !confirmBox(label)) return;
+    if (!ids.length || !await confirmBox(label)) return;
     try {
       await api("/records/bulk-delete", { method: "POST", body: { ids } });
       const n = new Set(sel); ids.forEach(id => n.delete(id)); setSel(n);
@@ -327,18 +327,18 @@ function SettleCard({ ctx }) {
   async function settle() {
     const name = options.find(c => c.id === tgt)?.name;
     const note = d.income_pending > 0 ? `\n\n주의: 아직 입금되지 않은 소득 ${won(d.income_pending)}이 포함되어 있습니다.` : "";
-    if (!confirmBox(`남은 ${won(d.leftover)}을 '${name}'(으)로 보내고, 각 항목의 계획을 실제 지출에 맞춥니다.\n원래 계획은 기록으로 보존됩니다. 정산할까요?${note}`)) return;
+    if (!await confirmBox(`남은 ${won(d.leftover)}을 '${name}'(으)로 보내고, 각 항목의 계획을 실제 지출에 맞춥니다.\n원래 계획은 기록으로 보존됩니다. 정산할까요?${note}`)) return;
     try { await api("/budget/settle", { method: "POST", body: { month, category_id: tgt } }); toast("정산했습니다. 소득 = 지출", "ok"); }
     catch (e) { toastErr(e); }
   }
   async function resettle() {
     const name = options.find(c => c.id === d.settle_target)?.name || "정산 항목";
-    if (!confirmBox(`지난 정산을 지우고 지금 기록으로 다시 정산합니다.\n남은 돈은 '${name}'(으)로 보냅니다. 진행할까요?`)) return;
+    if (!await confirmBox(`지난 정산을 지우고 지금 기록으로 다시 정산합니다.\n남은 돈은 '${name}'(으)로 보냅니다. 진행할까요?`)) return;
     try { await api("/budget/settle", { method: "POST", body: { month, category_id: d.settle_target } }); toast("다시 정산했습니다. 소득 = 지출", "ok"); }
     catch (e) { toastErr(e); }
   }
   async function unsettle() {
-    if (!confirmBox("정산을 취소하고 정산 전 계획·지출로 되돌릴까요?")) return;
+    if (!await confirmBox("정산을 취소하고 정산 전 계획·지출로 되돌릴까요?")) return;
     try { await api("/budget/settle", { method: "DELETE", params: { month } }); } catch (e) { toastErr(e); }
   }
   const tone = d.leftover < 0 ? "bad" : d.settled && d.balanced ? "ok" : "";
@@ -378,7 +378,7 @@ function CopyMonthModal({ month, onClose, onDone }) {
   const nothing = !v || (!(items && nIncome) && !nPlan);
 
   async function apply() {
-    if (amounts && v.plan_overwrite && !confirmBox(`이번 달에 이미 계획이 있는 항목 ${v.plan_overwrite}개는 지난달 금액으로 바뀝니다. 계속할까요?`)) return;
+    if (amounts && v.plan_overwrite && !await confirmBox(`이번 달에 이미 계획이 있는 항목 ${v.plan_overwrite}개는 지난달 금액으로 바뀝니다. 계속할까요?`)) return;
     setBusy(true);
     try {
       const r = await api("/budget/copy-month", { method: "POST", body: { from, to: month, items, amounts } });

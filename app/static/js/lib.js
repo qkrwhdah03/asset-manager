@@ -198,7 +198,58 @@ export function Modal({ title, onClose, children, footer, wide }) {
     </div></div>`;
 }
 
-export function confirmBox(msg) { return window.confirm(msg); }
+// ───────── 확인 창 ─────────
+// 브라우저 기본 confirm 대신 앱 안에서 그리는 모달. 요청은 대기열에 쌓이고 ConfirmHost 가 맨 앞부터 하나씩 보여 준다.
+// 호스트가 아직 없으면 요청은 대기열에 남는다(Promise 는 호스트가 마운트되어 답할 때까지 pending).
+const confirmQueue = [];
+let refreshConfirm = () => {};
+export function confirmBox(message, { title = "확인", ok = "확인", cancel = "취소" } = {}) {
+  return new Promise((resolve) => {
+    confirmQueue.push({ id: Math.random(), message, title, ok, cancel, resolve, done: false, prev: undefined });
+    refreshConfirm();
+  });
+}
+export function ConfirmHost() {
+  const [, setTick] = useState(0);
+  const okRef = useRef();
+  refreshConfirm = () => setTick(t => t + 1);
+  useEffect(() => () => { refreshConfirm = () => {}; }, []);
+  const cur = confirmQueue[0];
+  const finish = (value) => {
+    const req = confirmQueue[0];
+    if (!req || req.done) return;
+    req.done = true;
+    confirmQueue.shift();
+    req.resolve(value);
+    const next = confirmQueue[0];
+    if (next) { if (next.prev === undefined) next.prev = req.prev; }
+    else if (req.prev && req.prev.focus && document.contains(req.prev)) req.prev.focus();
+    setTick(t => t + 1);
+  };
+  useEffect(() => {
+    if (!cur) return;
+    if (cur.prev === undefined) cur.prev = document.activeElement;
+    okRef.current?.focus();
+    const h = (e) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      finish(false);
+    };
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
+  }, [cur && cur.id]);
+  if (!cur) return null;
+  return html`<div class="modal-back confirm" onMouseDown=${(e) => e.target === e.currentTarget && finish(false)}>
+    <div class="modal" role="alertdialog" aria-modal="true">
+      <div class="modal-head"><h3>${cur.title}</h3><button class="btn link" onClick=${() => finish(false)} title="닫기">✕</button></div>
+      <div class="modal-body"><div class="confirm-msg">${cur.message}</div></div>
+      <div class="modal-foot">
+        <button class="btn" onClick=${() => finish(false)}>${cur.cancel}</button>
+        <button class="btn primary" ref=${okRef} onClick=${() => finish(true)}>${cur.ok}</button>
+      </div>
+    </div></div>`;
+}
 
 // ───────── 입력 컴포넌트 ─────────
 export function MoneyInput({ value, onInput, placeholder = "0", autofocus, onKeyDown, style }) {

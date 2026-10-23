@@ -85,7 +85,7 @@ function CategoryList({ kind }) {
   const remove = async (c) => {
     let n;
     try { n = (await freshCounts([c.id]))[c.id] || 0; } catch (e) { return toastErr(e); }
-    if (confirmBox(`'${c.name}' 항목을 삭제할까요?${linkedNote(n, false)}`)) {
+    if (await confirmBox(`'${c.name}' 항목을 삭제할까요?${linkedNote(n, false)}`)) {
       run(() => api(`/categories/${c.id}`, { method: "DELETE", params: { with_records: n ? true : undefined } }));
     }
   };
@@ -94,7 +94,7 @@ function CategoryList({ kind }) {
     let counts;
     try { counts = await freshCounts(picked.map(c => c.id)); } catch (e) { return toastErr(e); }
     const n = picked.reduce((a, c) => a + (counts[c.id] || 0), 0);
-    if (!confirmBox(`${picked.length}개 항목을 삭제할까요?\n${picked.map(c => c.name).join(", ")}${linkedNote(n, true)}`)) return;
+    if (!await confirmBox(`${picked.length}개 항목을 삭제할까요?\n${picked.map(c => c.name).join(", ")}${linkedNote(n, true)}`)) return;
     if (await run(() => api("/categories/bulk-delete", { method: "POST", body: { ids: [...sel] } }))) setSel(new Set());
   };
   const drop = (c) => {
@@ -137,7 +137,7 @@ function CategoryList({ kind }) {
     ${moving && html`<${MoveDialog} kind=${kind} fromId=${moving.id} fromName=${moving.name} onClose=${() => setMoving(null)}
       onMoved=${async (r) => {
         // 전부 옮겼으면(= 합치기) 비게 된 항목을 지울지 묻는다
-        if (r.all && confirmBox(`'${moving.name}'의 기록을 모두 옮겼습니다. 비어 있는 '${moving.name}' 항목을 삭제할까요?`)) {
+        if (r.all && await confirmBox(`'${moving.name}'의 기록을 모두 옮겼습니다. 비어 있는 '${moving.name}' 항목을 삭제할까요?`)) {
           await run(() => api(`/categories/${moving.id}`, { method: "DELETE" }));
         }
       }} />`}
@@ -154,26 +154,26 @@ function BackupView() {
     try { const r = await api("/backups", { method: "POST" }); toast(`백업 완료: ${r.name}`, "ok"); list.reload(); } catch (e) { toastErr(e); } finally { setBusy(false); }
   }
   async function restore(name) {
-    if (!confirmBox(`'${name}'으로 복원하면 현재 데이터가 백업 시점으로 바뀝니다.\n(현재 데이터는 복원 직전에 자동 백업됩니다)\n계속할까요?`)) return;
+    if (!await confirmBox(`'${name}'으로 복원하면 현재 데이터가 백업 시점으로 바뀝니다.\n(현재 데이터는 복원 직전에 자동 백업됩니다)\n계속할까요?`)) return;
     try { const r = await api(`/backups/${encodeURIComponent(name)}/restore`, { method: "POST" }); toast(`복원 완료. 안전 백업: ${r.safety_backup}`, "ok"); setTimeout(() => location.reload(), 900); }
     catch (e) { toastErr(e); }
   }
   async function restoreFile() {
     const f = await pickFile(".db");
     if (!f) return;
-    if (!confirmBox(`'${f.name}' 파일로 복원할까요? 현재 데이터는 자동 백업됩니다.`)) return;
+    if (!await confirmBox(`'${f.name}' 파일로 복원할까요? 현재 데이터는 자동 백업됩니다.`)) return;
     try { const r = await api("/restore-upload", { method: "POST", raw: await f.arrayBuffer() }); toast(`복원 완료. 안전 백업: ${r.safety_backup}`, "ok"); setTimeout(() => location.reload(), 900); }
     catch (e) { toastErr(e); }
   }
   async function del(name) {
-    if (!confirmBox(`백업 파일 '${name}'을 삭제할까요?`)) return;
+    if (!await confirmBox(`백업 파일 '${name}'을 삭제할까요?`)) return;
     try { await api(`/backups/${encodeURIComponent(name)}`, { method: "DELETE" }); list.reload(); } catch (e) { toastErr(e); }
   }
   const openFolder = (which) => api("/open-folder", { method: "POST", body: { which } }).catch(toastErr);
   async function reset(mode) {
     const what = mode === "records" ? "모든 달의 소득·계획·지출 기록을 지웁니다. 항목은 그대로 남습니다." : "항목과 모든 기록을 지우고 처음 설치한 상태(기본 항목)로 되돌립니다.";
-    if (!confirmBox(`${what}\n지우기 전에 현재 데이터를 자동 백업합니다. 계속할까요?`)) return;
-    if (!confirmBox("정말 초기화할까요? 되돌리려면 백업 목록에서 pre_reset 백업을 복원해야 합니다.")) return;
+    if (!await confirmBox(`${what}\n지우기 전에 현재 데이터를 자동 백업합니다. 계속할까요?`)) return;
+    if (!await confirmBox("정말 초기화할까요? 되돌리려면 백업 목록에서 pre_reset 백업을 복원해야 합니다.")) return;
     try { const r = await api("/reset", { method: "POST", body: { mode } }); toast(`초기화했습니다. 백업: ${r.safety_backup}`, "ok"); setTimeout(() => location.reload(), 900); }
     catch (e) { toastErr(e); }
   }
