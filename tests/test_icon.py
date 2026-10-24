@@ -331,7 +331,7 @@ def test_window_title():
     from app import main as app_main
     title = app_main.window_title()
     assert title == "v" + app.__version__
-    assert title == "v0.1.0"
+    assert title == "v0.2.0"
     assert "개인 자산 관리" not in title
 
 
