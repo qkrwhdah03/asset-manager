@@ -3,6 +3,9 @@ import { DashboardPage } from "./pages/dashboard.js";
 import { CashflowPage } from "./pages/cashflow.js";
 import { SettingsPage } from "./pages/settings.js";
 
+// Heartbeat interval: browser mode shuts the server down when pings stop.
+const HEARTBEAT_MS = 20000;
+
 // [키, 메뉴 이름, 아이콘, 페이지]
 const PAGES = [
   ["dashboard", "대시보드", "▦", DashboardPage],
@@ -29,7 +32,11 @@ function App() {
     reloadCategories();
     reloadSettings();
     api("/meta").then(setMeta).catch(toastErr);
-    return () => { window.removeEventListener("hashchange", h); window.removeEventListener("paramschange", h); };
+    // Failures are ignored silently (no toast every 20 seconds).
+    const ping = () => api("/ping").catch(() => {});
+    ping();
+    const hb = setInterval(ping, HEARTBEAT_MS);
+    return () => { clearInterval(hb); window.removeEventListener("hashchange", h); window.removeEventListener("paramschange", h); };
   }, []);
 
   // 표시 설정(날짜·금액 단위)을 자식보다 먼저 적용한다. 설정이 바뀌면(reloadSettings) 앱 전체가 다시 그려진다.

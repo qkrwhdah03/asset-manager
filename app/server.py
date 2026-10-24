@@ -3,6 +3,7 @@ import mimetypes
 import os
 import sqlite3
 import tempfile
+import time
 from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -27,6 +28,8 @@ def create_app(db_file: Path | None = None) -> FastAPI:
     init_conn.close()
 
     app = FastAPI(title="개인 자산 관리", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    # Last heartbeat time (monotonic); browser mode shuts down when this goes stale.
+    app.state.last_ping = time.monotonic()
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
     @app.middleware("http")
@@ -93,6 +96,12 @@ def create_app(db_file: Path | None = None) -> FastAPI:
     def meta(conn=C):
         return {"version": __version__, "schema_version": db.get_version(conn), "data_dir": str(config.data_dir()),
                 "db_path": str(db_file), "backup_dir": str(config.backup_dir()), "today": date.today().isoformat()}
+
+    @app.get("/api/ping")
+    def ping():
+        # Heartbeat from the open page; no DB access.
+        app.state.last_ping = time.monotonic()
+        return {"ok": True}
 
     @app.get("/api/settings")
     def get_settings(conn=C):
